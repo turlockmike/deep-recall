@@ -126,7 +126,7 @@ def _build(cfg: Config, full: bool, quiet: bool) -> dict:
     gone = [p for p in known if p not in seen]
     for p in gone:
         _drop(db, p)
-    t0, n, group = time.time(), 0, 32
+    t0, n, group = time.time(), 0, 8
     for g in range(0, len(todo), group):           # embed many files per model call (much faster)
         batch = []
         for disp, absp, root, text, h in todo[g:g + group]:
