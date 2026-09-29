@@ -21,9 +21,9 @@ class CrossEncoderReranker(Reranker):
 
     def __init__(self, model: str = "Xenova/ms-marco-MiniLM-L-6-v2", batch_size: int = 32,
                  widen_at: float | None = None, window_words: int | None = None,
-                 prefilter_per_file: int | None = None, **_):
+                 prefilter_per_file: int | None = None, threads: int | None = None, **_):
         from fastembed.rerank.cross_encoder import TextCrossEncoder
-        self.model = TextCrossEncoder(model_name=model)
+        self.model = TextCrossEncoder(model_name=model, threads=threads)
         self.batch_size = batch_size
         if widen_at is not None:
             self.widen_at = float(widen_at)

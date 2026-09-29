@@ -30,9 +30,21 @@ word 500 of a long file (held-out set, 99 questions, blind LLM judge):
 | same, k=50 | 99.0% |
 
 The write-up covers how each piece earns its place, what it costs, and how the evaluation was run.
-Those numbers are from one corpus and one reranker (TypeSafe jev). The free local cross-encoder
-backend is weaker on buried facts but still well ahead of search alone. Run `deeprecall eval` on
-your own notes to see where you land.
+Those numbers are from one corpus and one reranker (TypeSafe jev). Run `deeprecall eval` on your
+own notes to see where you land.
+
+A small smoke test on a 115-file, 200k-word slice of the same memory (12 questions):
+
+| | #1 right | time / question | cost / question |
+|---|---|---|---|
+| hybrid search | 11/12 | ~0.2 s | free |
+| `cross-encoder` (local) | 11/12 | ~20 s on a busy 4-core box | free |
+| `jev` | 10/12 exact-path (the 2 "misses" rank another note stating the same fact) | ~3 s | ~0.8¢ |
+
+On a small corpus, search alone is already strong. The reranker earns its keep as the corpus grows and
+fills up with near-duplicate notes. The local cross-encoder is CPU-bound: set `threads = 2` (or your
+core count) under `[reranker]`, and expect it to be much faster on an idle machine than on the busy
+box measured here.
 
 ## Install
 
