@@ -5,6 +5,6 @@
   "description": "Answer-aware memory for Markdown notes: hybrid search + a pluggable passage reranker (local cross-encoder, jev, any OpenAI-compatible LLM, or your own) that finds the note that states the answer.",
   "author": { "name": "Mike Darmousseh" },
   "repository": "https://github.com/turlockmike/deep-recall",
-  "license": "UNLICENSED",
+  "license": "MIT",
   "keywords": ["memory", "retrieval", "rag", "rerank", "markdown", "notes", "obsidian"]
 }

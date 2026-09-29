@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "Answer-aware memory recall for Markdown knowledge bases: hybrid search + pluggable passage reranker (cross-encoder, jev, any LLM)."
 readme = "README.md"
 requires-python = ">=3.10"
-license = { text = "Proprietary" }
+license = { text = "MIT" }
 dependencies = [
   "fastembed>=0.4",
   "sqlite-vec>=0.1.6",

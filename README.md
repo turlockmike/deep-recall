@@ -29,7 +29,6 @@ word 500 of a long file (held-out set, 99 questions, blind LLM judge):
 | + rare-term leg + section-level answerability reranking (jev backend, k=20) | ~97% |
 | same, k=50 | 99.0% |
 
-The write-up covers how each piece earns its place, what it costs, and how the evaluation was run.
 Those numbers are from one corpus and one reranker (TypeSafe jev). Run `deeprecall eval` on your
 own notes to see where you land.
 
@@ -48,7 +47,7 @@ box measured here.
 
 ## Install
 
-### As a Claude Code plugin (private repo)
+### As a Claude Code plugin
 
 ```bash
 claude plugin marketplace add turlockmike/deep-recall
@@ -75,7 +74,7 @@ The plugin provides:
 ### As a Python package / CLI
 
 ```bash
-uv tool install 'git+ssh://git@github.com/turlockmike/deep-recall[mcp]'   # or: pip install -e '.[mcp]'
+uv tool install 'git+https://github.com/turlockmike/deep-recall[mcp]'   # or: pip install -e '.[mcp]'
 deeprecall init --root ~/notes
 deeprecall index
 deeprecall recall "When is the lawn service scheduled?"
