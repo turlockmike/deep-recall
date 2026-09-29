@@ -1,0 +1,37 @@
+[project]
+name = "deeprecall"
+version = "0.1.0"
+description = "Answer-aware memory recall for Markdown knowledge bases: hybrid search + pluggable passage reranker (cross-encoder, jev, any LLM)."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "Proprietary" }
+dependencies = [
+  "fastembed>=0.4",
+  "sqlite-vec>=0.1.6",
+  "pyyaml>=6",
+]
+
+[project.optional-dependencies]
+mcp = ["mcp>=1.2"]
+dev = ["pytest>=8"]
+
+[project.scripts]
+deeprecall = "deeprecall.cli:main"
+deeprecall-mcp = "deeprecall.mcp_server:main"
+
+[project.entry-points."deeprecall.rerankers"]
+none = "deeprecall.rerankers.base:NoReranker"
+cross-encoder = "deeprecall.rerankers.crossencoder:CrossEncoderReranker"
+jev = "deeprecall.rerankers.jev:JevReranker"
+openai = "deeprecall.rerankers.openai_compat:OpenAIYesNoReranker"
+command = "deeprecall.rerankers.command:CommandReranker"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/deeprecall"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

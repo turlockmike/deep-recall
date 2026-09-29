@@ -1,0 +1,15 @@
+{
+  "name": "deep-recall",
+  "owner": {
+    "name": "Mike Darmousseh"
+  },
+  "description": "Deep Recall: answer-aware memory for Markdown notes, as a Claude Code plugin.",
+  "plugins": [
+    {
+      "name": "deep-recall",
+      "source": "./",
+      "description": "Answer-aware memory for Markdown notes (hybrid search + pluggable reranker).",
+      "version": "0.1.0"
+    }
+  ]
+}

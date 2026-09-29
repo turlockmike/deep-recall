@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+# deeprecall launcher for the Claude Code plugin.
+# Uses an installed `deeprecall` if one is on PATH outside this plugin; otherwise runs the plugin's
+# own copy through uv in a persistent environment (created on first use, reused after).
+set -euo pipefail
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+SELF="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/$(basename "${BASH_SOURCE[0]}")"
+PROG="$(basename "$0")"                      # deeprecall | deeprecall-mcp
+IFS=: read -ra dirs <<< "${PATH:-}"
+for d in "${dirs[@]}"; do
+  c="$d/$PROG"
+  if [ -x "$c" ] && [ "$(cd "$(dirname "$c")" && pwd)/$PROG" != "$SELF" ]; then exec "$c" "$@"; fi
+done
+if ! command -v uv >/dev/null 2>&1; then
+  echo "deeprecall: needs 'uv' (https://docs.astral.sh/uv/) or 'pip install $ROOT[mcp]'" >&2
+  exit 127
+fi
+export UV_PROJECT_ENVIRONMENT="${CLAUDE_PLUGIN_DATA:-${XDG_DATA_HOME:-$HOME/.local/share}/deeprecall}/venv"
+exec uv run --quiet --project "$ROOT" --extra mcp "$PROG" "$@"

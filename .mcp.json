@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "deeprecall": {
+      "command": "${CLAUDE_PLUGIN_ROOT}/bin/deeprecall-mcp",
+      "args": []
+    }
+  }
+}
