@@ -215,7 +215,7 @@ Environment overrides: `DEEPRECALL_ROOTS` (path-separated), `DEEPRECALL_INDEX`, 
 ## Limits
 
 - Markdown only (`*.md`).
-- First index of a large corpus is CPU-bound: roughly 1–2k section embeddings per minute on a laptop.
+- First index is CPU-bound (one embedding per 350-word chunk and per section). Measured on a busy 4-core WSL box: 90k words in 7 minutes. Later runs only re-embed changed files.
 - Hosted rerankers send note text to that provider. Use `cross-encoder` or a local `openai`-compatible server for private notes.
 
 ## Development
