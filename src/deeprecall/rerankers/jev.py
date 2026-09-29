@@ -14,18 +14,35 @@ PROMPT = ('Does `content` explicitly state the specific fact that answers this q
           'Yes only if the answer itself is written in the text, not merely the same topic.')
 
 
+def _key_from_file(path: str | None, var: str) -> str:
+    """Read a key from a file holding either the bare key or VAR=key lines."""
+    if not path:
+        return ""
+    try:
+        text = open(os.path.expanduser(path)).read()
+    except OSError:
+        return ""
+    for line in text.splitlines():
+        line = line.strip()
+        if line.startswith(var + "="):
+            return line.split("=", 1)[1].strip().strip('"\'')
+    lines = [l.strip() for l in text.splitlines() if l.strip() and not l.startswith("#")]
+    return lines[0] if len(lines) == 1 and "=" not in lines[0] else ""
+
+
 class JevReranker(Reranker):
     name = "jev"
     window_words = 600
     widen_at = 0.7
 
-    def __init__(self, api_key_env: str = "TYPESAFE_API_KEY", model: str = "jev-latest",
+    def __init__(self, api_key_env: str = "TYPESAFE_API_KEY", api_key_file: str | None = None,
+                 model: str = "jev-latest",
                  base_url: str = "https://api.typesafe.ai/v1", usd_per_mtok: float = 0.042,
                  workers: int = 32, prompt: str = PROMPT, widen_at: float | None = None,
                  window_words: int | None = None, **_):
-        self.key = os.environ.get(api_key_env, "")
+        self.key = os.environ.get(api_key_env, "") or _key_from_file(api_key_file, api_key_env)
         if not self.key:
-            raise RerankerError(f"jev: set ${api_key_env}")
+            raise RerankerError(f"jev: set ${api_key_env} or api_key_file")
         self.model, self.url, self.workers, self.prompt = model, base_url.rstrip("/") + "/systemone", workers, prompt
         self.usd_per_token = usd_per_mtok / 1e6
         if widen_at is not None:

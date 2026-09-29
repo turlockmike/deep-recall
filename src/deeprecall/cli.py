@@ -6,6 +6,7 @@
   deeprecall recall "question?" [--top 5]       answer-aware recall (reranked), prints the winning section
   deeprecall status                             config, index size, reranker, spend
   deeprecall rerankers                          list available reranker backends
+  deeprecall report [--days 7]                  usage: queries, confidence, widen/fallback rate, latency, spend
   deeprecall eval questions.jsonl [--limit N]   hit@1 / hit@3 for first-stage vs recall
 """
 from __future__ import annotations
@@ -67,6 +68,9 @@ def cmd_index(a) -> int:
         print("no roots configured: run `deeprecall init --root <notes dir>`", file=sys.stderr)
         return 2
     r = idx.build(cfg, full=a.full, quiet=a.quiet)
+    if r.get("skipped"):
+        print(f"index: {r['skipped']}", file=sys.stderr)
+        return 0
     if not a.quiet or r["indexed"] or r["removed"]:
         print(f"indexed {r['indexed']} changed file(s), removed {r['removed']}, total {r['total']} ({r['secs']}s) -> {cfg.index}")
     return 0
@@ -112,6 +116,43 @@ def cmd_rerankers(a) -> int:
     return 0
 
 
+def cmd_report(a) -> int:
+    import statistics
+    import time as _t
+    cfg = load()
+    since = _t.time() - a.days * 86400
+    rows = []
+    try:
+        for ln in open(cfg.recall_log):
+            r = json.loads(ln)
+            try:
+                ts = _t.mktime(_t.strptime(r["ts"][:19], "%Y-%m-%dT%H:%M:%S"))
+            except (KeyError, ValueError):
+                continue
+            if ts >= since:
+                rows.append(r)
+    except FileNotFoundError:
+        pass
+    rr = [r for r in rows if r["mode"].startswith("rerank")]
+    wa = lambda r: r.get("widen_at") or 0.5
+    top = lambda r: (r["top"][0][1] if r.get("top") and r["top"][0][1] is not None else None)
+    secs = sorted(r["secs"] for r in rr) or [0]
+    agree = [r for r in rr if r.get("first_stage_top3") and r.get("top")]
+    out = {"days": a.days, "queries": len(rows),
+           "modes": {m: sum(r["mode"] == m for r in rows) for m in sorted({r["mode"] for r in rows})},
+           "reranked": len(rr),
+           "confident_top1": sum(1 for r in rr if top(r) is not None and top(r) >= wa(r)),
+           "low_confidence": sum(1 for r in rr if top(r) is not None and top(r) < wa(r)),
+           "widened": sum(r.get("widened", False) for r in rr),
+           "fallbacks": sum(r["mode"].startswith("first-stage") for r in rows),
+           "top1_differs_from_search": sum(r["top"][0][0] != r["first_stage_top3"][0] for r in agree),
+           "secs_p50": round(statistics.median(secs), 2), "secs_p90": round(secs[int(0.9 * (len(secs) - 1))], 2),
+           "usd": round(sum(r.get("usd", 0) for r in rows), 4),
+           "usd_per_reranked": round(sum(r.get("usd", 0) for r in rr) / max(len(rr), 1), 5)}
+    print(json.dumps(out, indent=1))
+    return 0
+
+
 def cmd_eval(a) -> int:
     from .eval import run
     return run(a.file, a.limit, a.top, a.max_usd, a.json)
@@ -149,6 +190,9 @@ def main(argv=None) -> int:
     p.set_defaults(fn=cmd_status)
     p = sub.add_parser("rerankers", help="list reranker backends")
     p.set_defaults(fn=cmd_rerankers)
+    p = sub.add_parser("report", help="usage summary from the recall log")
+    p.add_argument("--days", type=float, default=7)
+    p.set_defaults(fn=cmd_report)
     p = sub.add_parser("eval", help="hit@1/hit@3 on a question file")
     p.add_argument("file", help='JSON list or JSONL of {"q": "...", "gold": ["path", ...]}')
     p.add_argument("--limit", type=int)

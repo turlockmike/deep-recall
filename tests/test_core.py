@@ -190,3 +190,38 @@ def test_prefilter_keeps_matching_windows():
     kept = prefilter("Which electricity plan did we switch to?", wins, 2)
     assert any(w.heading == "hit" for w in kept)
     assert len([w for w in kept if w.path == "a.md"]) == 2 and any(w.path == "b.md" for w in kept)
+
+
+def test_jev_key_from_file(tmp_path):
+    from deeprecall.rerankers.jev import _key_from_file
+    f = tmp_path / "k.env"
+    f.write_text("# c\nTYPESAFE_API_KEY=abc123\n")
+    assert _key_from_file(str(f), "TYPESAFE_API_KEY") == "abc123"
+    f.write_text("rawkey\n")
+    assert _key_from_file(str(f), "TYPESAFE_API_KEY") == "rawkey"
+
+
+def test_log_has_first_stage_and_report(cfg, capsys):
+    cfg.reranker = {"backend": "fake"}
+    Recaller(cfg, KeywordFake()).recall("Which electricity plan did we switch to?", k=9)
+    Recaller(cfg, KeywordFake()).recall("electricity plan")
+    rows = [json.loads(l) for l in open(cfg.recall_log)]
+    assert rows[0]["first_stage_top3"] and rows[1]["mode"] == "keyword"
+    import deeprecall.cli as cli
+    import os
+    os.environ["DEEPRECALL_CONFIG"] = str(cfg.source)
+    try:
+        cli.main(["report", "--days", "1"])
+    finally:
+        del os.environ["DEEPRECALL_CONFIG"]
+    rep = json.loads(capsys.readouterr().out)
+    assert rep["queries"] == 2 and rep["reranked"] == 1 and rep["confident_top1"] == 1
+
+
+def test_concurrent_build_is_skipped(cfg):
+    import fcntl
+    with open(str(cfg.index) + ".lock", "w") as held:
+        fcntl.flock(held, fcntl.LOCK_EX)
+        r = idx.build(cfg, quiet=True)
+    assert r.get("skipped")
+    assert idx.build(cfg, quiet=True).get("skipped") is None

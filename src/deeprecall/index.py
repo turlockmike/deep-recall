@@ -89,6 +89,23 @@ def _chunks(body: str, n: int) -> list[str]:
 
 
 def build(cfg: Config, full: bool = False, quiet: bool = False) -> dict:
+    """Build/update the index. Only one builder per index runs at a time; a second call returns
+    immediately with {"skipped": "locked"} instead of racing the first."""
+    import fcntl
+    cfg.index.parent.mkdir(parents=True, exist_ok=True)
+    lock = open(str(cfg.index) + ".lock", "w")
+    try:
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        lock.close()
+        return {"indexed": 0, "removed": 0, "total": None, "secs": 0, "skipped": "locked (another index build is running)"}
+    try:
+        return _build(cfg, full, quiet)
+    finally:
+        lock.close()
+
+
+def _build(cfg: Config, full: bool, quiet: bool) -> dict:
     emb = get_embedder(cfg.embed_model)
     if full and cfg.index.exists():
         cfg.index.unlink()

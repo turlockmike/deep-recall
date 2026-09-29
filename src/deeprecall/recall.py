@@ -133,14 +133,18 @@ class Recaller:
     def recall(self, q: str, top: int = 5, k: int | None = None, rerank: bool = True) -> Result:
         t0, cfg = time.time(), self.cfg
         k = k or cfg.k
-        pool = list(dict.fromkeys(self.first_stage(q, k) + self.rare().leg(q, cfg.rare_max_df)))
+        fs = self.first_stage(q, k)
+        pool = list(dict.fromkeys(fs + self.rare().leg(q, cfg.rare_max_df)))
         if not rerank or (cfg.question_gate and not is_question(q)) or cfg.reranker.get("backend") == "none":
             mode = "keyword" if rerank and cfg.question_gate and not is_question(q) else "first-stage"
-            return Result(q, [Hit(p, None) for p in pool[:top]], mode, len(pool), secs=time.time() - t0)
+            res = Result(q, [Hit(p, None) for p in pool[:top]], mode, len(pool), secs=round(time.time() - t0, 2))
+            self._log(res)
+            return res
         budget = Budget(cfg.ledger, cfg.max_usd_per_query, cfg.daily_cap_usd)
         cache: dict[str, tuple[float, str]] = {}
         passages: dict[str, str] = {}
         res = Result(q, [], "rerank:" + str(cfg.reranker.get("backend")), len(pool))
+        res.extra["first_stage_top3"] = fs[:3]
         try:
             res.tokens += self._score_files(q, pool, cache, passages, budget)
             ranked = sorted(pool, key=lambda p: (-cache[p][0], pool.index(p)))
@@ -171,6 +175,8 @@ class Recaller:
             with open(self.cfg.recall_log, "a") as f:
                 f.write(json.dumps({"ts": time.strftime("%Y-%m-%dT%H:%M:%S%z"), "q": r.query, "mode": r.mode,
                                     "top": [[h.path, h.score] for h in r.hits[:3]], "pool": r.pool,
-                                    "widened": r.widened, "usd": r.usd, "secs": r.secs, "note": r.note}) + "\n")
+                                    "widened": r.widened, "usd": r.usd, "secs": r.secs, "note": r.note,
+                                    "first_stage_top3": r.extra.get("first_stage_top3"),
+                                    "widen_at": r.extra.get("widen_at")}) + "\n")
         except OSError:
             pass
