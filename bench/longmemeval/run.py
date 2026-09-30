@@ -21,6 +21,7 @@ Exit 0 on success, 1 on a failed run (CLI error, empty index, reranker fell back
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import random
@@ -92,6 +93,12 @@ def score(ranked: list[str], gold: set[str]) -> dict:
             "all@5": gold <= set(ranked[:5]), "all@10": gold <= set(ranked[:10])}
 
 
+def blind_name(qid: str, sid: str) -> str:
+    """A file name that carries no label: LongMemEval names evidence sessions `answer_*`, and the name reaches
+    the index (title), every reranker window (heading) and the reranker's state (`path`)."""
+    return "s" + hashlib.sha256(f"{qid}:{sid}".encode()).hexdigest()[:10]
+
+
 def session_markdown(sid: str, date: str, turns: list[dict]) -> str:
     return f"# Session {sid}\n\nDate: {date}\n\n" + "\n\n".join(f"**{t['role']}:** {t['content']}" for t in turns)
 
@@ -122,8 +129,9 @@ def one(q: dict, out: Path, backend: str, prompt: str) -> dict:
     d = out / "haystacks" / q["question_id"]
     notes = d / "notes"
     notes.mkdir(parents=True, exist_ok=True)
+    name = {sid: blind_name(q["question_id"], sid) for sid in q["haystack_session_ids"]}
     for sid, date, turns in zip(q["haystack_session_ids"], q["haystack_dates"], q["haystack_sessions"]):
-        (notes / f"{sid}.md").write_text(session_markdown(sid, date, turns))
+        (notes / f"{name[sid]}.md").write_text(session_markdown(name[sid], date, turns))
     cfg = d / ".deeprecall" / "config.toml"
     if not cfg.exists():
         _run([BIN, "init", "--root", str(notes), "--backend", backend, "--here"], d)
@@ -143,7 +151,7 @@ def one(q: dict, out: Path, backend: str, prompt: str) -> dict:
     s = json.loads(_run([BIN, "search", question, "-k", "10", "--json"], d))
     r = json.loads(_run([BIN, "recall", question, "--top", "10", "--backend", backend, "--no-passage", "--json"], d))
     check_recall(q["question_id"], r, s)
-    gold = {f"{g}.md" for g in q["answer_session_ids"]}
+    gold = {f"{name[g]}.md" for g in q["answer_session_ids"]}
     sp, rp = [x["path"] for x in s], [x["path"] for x in r["results"]]
     return {"qid": q["question_id"], "type": q["question_type"], "gold": sorted(gold), "search": sp, "recall": rp,
             "scores": [x["score"] for x in r["results"]], "search_score": score(sp, gold), "recall_score": score(rp, gold),
@@ -197,7 +205,7 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     out = Path(a.out).resolve()
     settings = {"data": Path(a.data).name, "n": a.n, "seed": a.seed, "backend": a.backend, "prompt": prompt,
-                "include_abstention": a.include_abstention}
+                "include_abstention": a.include_abstention, "blind_ids": True}
     run_f = out / "run.json"
     if run_f.exists() and json.loads(run_f.read_text()) != settings:
         print(json.dumps({"error": f"{out} was started with other settings; use a new directory",

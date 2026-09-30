@@ -143,7 +143,7 @@ def test_main_summarizes_only_the_current_sample(tmp_path, monkeypatch):
     hit = {"any@1": True, "any@5": True, "all@5": True, "all@10": True}
     out.mkdir()
     (out / "run.json").write_text(json.dumps({"data": "d.json", "n": 3, "seed": 0, "backend": "jev", "prompt": "",
-                                             "include_abstention": False}))
+                                             "include_abstention": False, "blind_ids": True}))
     rows = [{**_row("a", hit, hit), "qid": q} for q in ("a-0", "a-1", "a-2", "stale-9")]
     (out / "rows.ndjson").write_text("".join(json.dumps(r) + "\n" for r in rows))
     assert lme.main([str(out), "--data", str(data), "--n", "3"]) == 0
@@ -192,3 +192,9 @@ def test_charts_render_the_committed_results_and_match_the_checked_in_svgs():
     assert f">{lme500['n'] - lme500['recall']['any@5']} of {lme500['n']}<" in miss
     assert (charts.OUT / "reranker-lift.svg").read_text() == lift
     assert (charts.OUT / "longmemeval-misses.svg").read_text() == miss
+
+
+def test_blind_name_hides_the_evidence_label_and_is_stable():
+    n = lme.blind_name("q1", "answer_526354c8_1")
+    assert "answer" not in n and n == lme.blind_name("q1", "answer_526354c8_1")
+    assert n != lme.blind_name("q2", "answer_526354c8_1")
