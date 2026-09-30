@@ -109,16 +109,20 @@ class Recaller:
         return [p for p, _ in search(self.cfg, q, k)]
 
     def _classify(self, q: str, budget: Budget) -> tuple[str | None, int]:
-        """The question's kind and the tokens it cost; a failed classification loses only the kind."""
+        """The question's kind and the tokens it cost; a failed classification loses only the kind, and
+        whatever it was billed is still recorded."""
+        rr, kind = None, None
         try:
             rr = self.reranker
-            budget.check((len(q) + 900) / 3 * rr.usd_per_token)
             rr.last_tokens = 0
+            budget.check((len(q) + 900) / 3 * rr.usd_per_token)
             kind = rr.classify(q)
         except Exception:
-            return None, 0
-        budget.record(rr.name, rr.last_tokens, rr.last_tokens * rr.usd_per_token)
-        return kind, rr.last_tokens
+            kind = None
+        tokens = rr.last_tokens if rr is not None else 0
+        if tokens:
+            budget.record(rr.name, tokens, tokens * rr.usd_per_token)
+        return kind, tokens
 
     def _score_files(self, q, paths, cache, passages, budget, rr=None):
         rr = rr or self.reranker
@@ -133,13 +137,16 @@ class Recaller:
             wins += [Passage(p, h, t) for h, t in windows(body, rr.window_words, self.cfg.max_windows)]
         if rr.prefilter_per_file:
             wins = prefilter(q, wins, rr.prefilter_per_file)
-        est = rr.estimate_tokens(q, wins) * rr.usd_per_token
-        budget.check(est)
-        scores = rr.score(q, wins) if wins else []
-        tokens = rr.last_tokens or (rr.estimate_tokens(q, wins) if rr.usd_per_token else 0)
-        budget.record(rr.name, tokens, tokens * rr.usd_per_token)
         for p in todo:
             cache.setdefault(p, (0.0, ""))
+        if not wins:        # nothing new to score; last_tokens still holds the previous call's count
+            return 0
+        est = rr.estimate_tokens(q, wins) * rr.usd_per_token
+        budget.check(est)
+        rr.last_tokens = 0
+        scores = rr.score(q, wins)
+        tokens = rr.last_tokens or (rr.estimate_tokens(q, wins) if rr.usd_per_token else 0)
+        budget.record(rr.name, tokens, tokens * rr.usd_per_token)
         for w, s in zip(wins, scores):
             if s > cache[w.path][0]:
                 cache[w.path] = (s, w.heading)
@@ -172,12 +179,13 @@ class Recaller:
             unsure = ranked and cache[ranked[0]][0] < widen_at
             if ranked and (unsure or res.kind in cfg.widen_kinds) and cfg.widen_k > k:
                 wide = list(dict.fromkeys(pool + self.first_stage(q, cfg.widen_k)))
-                try:
-                    res.tokens += self._score_files(q, wide, cache, passages, budget, rr)
-                    ranked = sorted(wide, key=lambda p: (-cache[p][0], wide.index(p)))
-                    res.widened, res.pool = True, len(wide)
-                except Exception as e:  # keep the first pass result
-                    res.note = f"widen skipped: {e}"
+                if len(wide) > len(pool):
+                    try:
+                        res.tokens += self._score_files(q, wide, cache, passages, budget, rr)
+                        ranked = sorted(wide, key=lambda p: (-cache[p][0], wide.index(p)))
+                        res.widened, res.pool = True, len(wide)
+                    except Exception as e:  # keep the first pass result
+                        res.note = f"widen skipped: {e}"
             res.hits = [Hit(p, cache[p][0], cache[p][1], passages.get(p, "") if i == 0 else "")
                         for i, p in enumerate(ranked[:top])]
             res.extra["widen_at"] = widen_at

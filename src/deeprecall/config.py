@@ -69,6 +69,11 @@ def _expand(p: str | Path) -> Path:
     return Path(os.path.expandvars(os.path.expanduser(str(p))))
 
 
+def _str_list(v) -> list[str]:
+    """A TOML list of strings, accepting a bare string as a one-item list (list("aggregate") is letters)."""
+    return [v] if isinstance(v, str) else list(v)
+
+
 def find_config_file(start: Path | None = None) -> Path | None:
     env = os.environ.get("DEEPRECALL_CONFIG")
     if env:
@@ -145,7 +150,7 @@ def load(path: Path | None = None, **overrides) -> Config:
         max_windows=int(rec.get("max_windows", Config.max_windows)),
         question_gate=bool(rec.get("question_gate", True)),
         question_kinds=bool(rec.get("question_kinds", False)),
-        widen_kinds=list(rec.get("widen_kinds", Config.__dataclass_fields__["widen_kinds"].default_factory())),
+        widen_kinds=_str_list(rec.get("widen_kinds", Config.__dataclass_fields__["widen_kinds"].default_factory())),
         reranker=dict(raw.get("reranker", {"backend": "cross-encoder"})),
         max_usd_per_query=float(bud.get("max_usd_per_query", Config.max_usd_per_query)),
         daily_cap_usd=float(bud.get("daily_cap_usd", Config.daily_cap_usd)),
