@@ -25,7 +25,10 @@ class HashEmbedder:
 
 
 class FastEmbedder:
-    def __init__(self, model: str, batch_size: int = 64):
+    # batch_size 16, not 64: ONNX Runtime's CPU arena keeps its peak allocation for the life of the
+    # process, and a 64 x 512-token batch of bge-small peaks at ~2.3 GB RSS (measured 2026-09-29;
+    # 16 -> ~0.75 GB and no slower). The 64 default was the 2.4 GB process the kernel OOM-killed that night.
+    def __init__(self, model: str, batch_size: int = 16):
         from fastembed import TextEmbedding
         self.model = TextEmbedding(model_name=model)
         self.batch_size = batch_size
