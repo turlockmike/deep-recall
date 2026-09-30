@@ -3,7 +3,8 @@
 
 Each question gets its own index over its own haystack (one Markdown file per chat session). The script
 runs first-stage search and reranked recall, and scores both against the dataset's answer_session_ids.
-Abstention questions (question_id ending in _abs) have no evidence and are left out.
+Abstention questions (question_id ending in _abs) are left out unless --include-abstention is given; the
+dataset still labels sessions for them, and other published LongMemEval-S recall figures score all 500.
 
   python bench/longmemeval/run.py OUT_DIR --data longmemeval_s_cleaned.json [--n 470] [--backend jev]
                                   [--prompt-file bench/longmemeval/contrib-prompt.txt] [--max-usd 4]
@@ -63,11 +64,11 @@ def answerable(questions: list[dict]) -> list[dict]:
     return [q for q in questions if not q["question_id"].endswith("_abs")]
 
 
-def sample(questions: list[dict], n: int, seed: int = 0) -> list[dict]:
-    """A stratified sample of n answerable questions, proportional to question_type, reproducible by seed."""
-    pool = answerable(questions)
+def sample(questions: list[dict], n: int, seed: int = 0, include_abstention: bool = False) -> list[dict]:
+    """A stratified sample of n questions, proportional to question_type, reproducible by seed."""
+    pool = questions if include_abstention else answerable(questions)
     if not 0 < n <= len(pool):
-        raise ValueError(f"n must be between 1 and {len(pool)} answerable questions, got {n}")
+        raise ValueError(f"n must be between 1 and {len(pool)} questions, got {n}")
     by = defaultdict(list)
     for q in pool:
         by[q["question_type"]].append(q)
@@ -176,6 +177,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--data", required=True, help="LongMemEval JSON, e.g. longmemeval_s_cleaned.json")
     ap.add_argument("--n", type=int, default=50, help="answerable questions to sample (470 = all of LongMemEval-S)")
     ap.add_argument("--seed", type=int, default=0)
+    ap.add_argument("--include-abstention", action="store_true",
+                    help="also score the 30 abstention questions (500 = all of LongMemEval-S)")
     ap.add_argument("--backend", default="jev")
     ap.add_argument("--prompt-file", help="jev prompt override; must contain {q}")
     ap.add_argument("--max-usd", type=float, default=1.0, help="stop before the next question once spend reaches this")
@@ -188,12 +191,13 @@ def main(argv: list[str] | None = None) -> int:
             print(json.dumps({"error": bad}), file=sys.stderr)
             return 2
     try:
-        qs = sample(json.load(open(a.data)), a.n, a.seed)
+        qs = sample(json.load(open(a.data)), a.n, a.seed, a.include_abstention)
     except (OSError, ValueError, KeyError) as e:
         print(json.dumps({"error": f"cannot load {a.data}: {e}"}), file=sys.stderr)
         return 2
     out = Path(a.out).resolve()
-    settings = {"data": Path(a.data).name, "n": a.n, "seed": a.seed, "backend": a.backend, "prompt": prompt}
+    settings = {"data": Path(a.data).name, "n": a.n, "seed": a.seed, "backend": a.backend, "prompt": prompt,
+                "include_abstention": a.include_abstention}
     run_f = out / "run.json"
     if run_f.exists() and json.loads(run_f.read_text()) != settings:
         print(json.dumps({"error": f"{out} was started with other settings; use a new directory",

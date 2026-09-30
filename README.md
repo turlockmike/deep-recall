@@ -1,11 +1,20 @@
 # Deep Recall
 
-**Answer-aware memory for Markdown notes, as a Claude Code plugin.**
+**Search finds notes about your question. Deep Recall finds the one that answers it.**
 
-Most note search finds files *about* your question. Deep Recall finds the file that **states the
-answer**. A fast hybrid search (keyword + embeddings + an exact rare-term leg) gathers candidates.
-Then a pluggable **reranker** reads each candidate section and scores one thing: *does this
-passage state the answer?*
+Memory for AI agents, over plain Markdown notes. A hybrid search gathers candidates, then a
+**reranker** reads each passage and scores one thing: *does this contain the answer?* The passages that
+do go to your model, so whatever LLM you plug in gets the facts, not the neighbourhood.
+
+<p align="center"><img src="docs/img/reranker-lift.svg" alt="Hybrid search vs Deep Recall's reranker: 61.6% to about 97% on a 5,200-note agent memory, 87.2% to 97.4% on LongMemEval-S" width="760"></p>
+
+- **99.6% on LongMemEval-S.** On 498 of 500 questions, evidence for the answer reached the top 5 files.
+  On 97.4% of the answerable ones, *all* of it did. These are retrieval numbers: they measure the context,
+  not a model's answer. [Method and per-question results](bench/longmemeval/).
+- **Any LLM.** Deep Recall returns context. Claude, GPT, Gemini or a local model does the answering.
+- **About half a cent a question** with the `jev` reranker. A free local cross-encoder is built in, and
+  any model that returns a score plugs in.
+- **Your notes stay Markdown.** The index is one SQLite file next to them.
 
 ```
 $ deeprecall recall "Which electricity plan did we switch to?"
@@ -18,43 +27,26 @@ $ deeprecall recall "Which electricity plan did we switch to?"
 ... After a long call we switched to the **Saver Plus 12** plan: 12.76 cents per kWh ...
 ```
 
-## Why
+In Claude Code:
 
-On a real 5,200-file agent memory, measured on questions whose answer is one sentence buried past
-word 500 of a long file (held-out set, 99 questions, blind LLM judge):
+```bash
+claude plugin marketplace add turlockmike/deep-recall
+claude plugin install deep-recall@deep-recall
+```
 
-| | right file ranked #1 |
-|---|---|
-| hybrid search alone | 61.6% |
-| + rare-term leg + section-level answerability reranking (jev backend, k=20) | ~97% |
-| same, k=50 | 99.0% |
+then `/deep-recall:setup ~/notes`. Other ways to install are [below](#install).
 
-Those numbers are from one corpus and one reranker (TypeSafe jev). Run `deeprecall eval` on your
-own notes to see where you land.
+## How it compares
 
-On a public benchmark, [LongMemEval-S](bench/longmemeval/) (470 answerable questions, each with its own
-~48-session chat history), scored on whether *every* evidence session reaches the top 5:
+<p align="center"><img src="docs/img/longmemeval-misses.svg" alt="Questions of 500 with no evidence in the top 5: agentmemory 24, MemPalace raw 17, Deep Recall search only 16, Deep Recall with reranker 2" width="760"></p>
 
-| | all evidence in top 5 | evidence session #1 |
-|---|---|---|
-| hybrid search alone | 87.2% | 87.2% |
-| + jev rerank ([`contrib-prompt.txt`](bench/longmemeval/contrib-prompt.txt)) | **97.4%** | 97.4% |
+Memory systems that publish LongMemEval-S retrieval numbers find the right conversation most of the time,
+and Deep Recall's own search is in the same range (16 misses). The reranker is what takes it to 2.
+The competing figures are each project's own session-level `recall_any@5`, read from its repository.
 
-$2.43 for all 470 questions. [`bench/longmemeval/`](bench/longmemeval/) has the per-question results and
-step-by-step instructions to reproduce them.
-
-A small smoke test on a 115-file, 200k-word slice of the same memory (12 questions):
-
-| | #1 right | time / question | cost / question |
-|---|---|---|---|
-| hybrid search | 11/12 | ~0.2 s | free |
-| `cross-encoder` (local) | 11/12 | ~20 s on a busy 4-core box | free |
-| `jev` | 10/12 exact-path (the 2 "misses" rank another note stating the same fact) | ~3 s | ~0.8¢ |
-
-On a small corpus, search alone is already strong. The reranker earns its keep as the corpus grows and
-fills up with near-duplicate notes. The local cross-encoder is CPU-bound: set `threads = 2` (or your
-core count) under `[reranker]`, and expect it to be much faster on an idle machine than on the busy
-box measured here.
+Most published LongMemEval scores are end to end: a memory system *plus* a chosen answering model and
+judge, so they measure the model as much as the memory. How those compare, a 50-question end-to-end spot
+check of Deep Recall, and results on a real 5,200-note memory are in [docs/benchmarks.md](docs/benchmarks.md).
 
 ## Install
 

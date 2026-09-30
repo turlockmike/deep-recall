@@ -35,6 +35,12 @@ def test_sample_keeps_every_type_and_is_reproducible():
     assert [q["question_id"] for q in s] != [q["question_id"] for q in lme.sample(qs, 5, seed=1)]
 
 
+def test_sample_can_include_abstention():
+    qs = _qs({"a": 7, "b": 3}, abstain=2)
+    s = lme.sample(qs, 12, include_abstention=True)
+    assert len(s) == 12 and sum(q["question_id"].endswith("_abs") for q in s) == 2
+
+
 def test_sample_all_returns_every_answerable_question():
     qs = _qs({"a": 7, "b": 3}, abstain=2)
     assert len(lme.sample(qs, 10)) == 10
@@ -47,7 +53,7 @@ def test_sample_tops_up_when_rounding_undershoots():
 
 @pytest.mark.parametrize("n", [0, 11])
 def test_sample_rejects_out_of_range_n(n):
-    with pytest.raises(ValueError, match="between 1 and 10"):
+    with pytest.raises(ValueError, match="between 1 and 10 questions"):
         lme.sample(_qs({"a": 7, "b": 3}), n)
 
 
@@ -136,7 +142,8 @@ def test_main_summarizes_only_the_current_sample(tmp_path, monkeypatch):
     out, data = tmp_path / "out", _data(tmp_path)
     hit = {"any@1": True, "any@5": True, "all@5": True, "all@10": True}
     out.mkdir()
-    (out / "run.json").write_text(json.dumps({"data": "d.json", "n": 3, "seed": 0, "backend": "jev", "prompt": ""}))
+    (out / "run.json").write_text(json.dumps({"data": "d.json", "n": 3, "seed": 0, "backend": "jev", "prompt": "",
+                                             "include_abstention": False}))
     rows = [{**_row("a", hit, hit), "qid": q} for q in ("a-0", "a-1", "a-2", "stale-9")]
     (out / "rows.ndjson").write_text("".join(json.dumps(r) + "\n" for r in rows))
     assert lme.main([str(out), "--data", str(data), "--n", "3"]) == 0
@@ -168,3 +175,20 @@ def test_check_recall_accepts_a_reranked_result():
 def test_main_rejects_missing_data_and_bad_n(tmp_path):
     assert lme.main([str(tmp_path / "out"), "--data", str(tmp_path / "nope.json")]) == 2
     assert lme.main([str(tmp_path / "out"), "--data", str(_data(tmp_path)), "--n", "4"]) == 2
+
+
+_cspec = importlib.util.spec_from_file_location(
+    "lme_charts", Path(__file__).resolve().parent.parent / "bench" / "longmemeval" / "charts.py")
+charts = importlib.util.module_from_spec(_cspec)
+_cspec.loader.exec_module(charts)
+
+
+def test_charts_render_the_committed_results_and_match_the_checked_in_svgs():
+    res = Path(charts.HERE) / "results"
+    lme = json.loads((res / "s-470-contrib-prompt" / "summary.json").read_text())
+    lme500 = json.loads((res / "s-500-contrib-prompt" / "summary.json").read_text())
+    lift, miss = charts.reranker_lift(lme), charts.misses(lme500)
+    assert f"{lme['recall']['all@5'] / lme['n'] * 100:.1f}%" in lift
+    assert f">{lme500['n'] - lme500['recall']['any@5']} of {lme500['n']}<" in miss
+    assert (charts.OUT / "reranker-lift.svg").read_text() == lift
+    assert (charts.OUT / "longmemeval-misses.svg").read_text() == miss

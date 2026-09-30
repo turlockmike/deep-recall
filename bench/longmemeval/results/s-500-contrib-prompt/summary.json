@@ -1,0 +1,66 @@
+{
+ "n": 500,
+ "backend": "jev",
+ "search": {
+  "any@1": 436,
+  "any@5": 484,
+  "all@5": 432,
+  "all@10": 473
+ },
+ "recall": {
+  "any@1": 484,
+  "any@5": 498,
+  "all@5": 486,
+  "all@10": 492
+ },
+ "widened": 142,
+ "fail_open": 0,
+ "usd": 2.6428,
+ "usd_per_q": 0.00529,
+ "tokens": 62923832,
+ "mean_secs_recall": 7.8,
+ "by_type": {
+  "knowledge-update": {
+   "n": 78,
+   "search any@1": 74,
+   "recall any@1": 75,
+   "search all@5": 75,
+   "recall all@5": 78
+  },
+  "multi-session": {
+   "n": 133,
+   "search any@1": 118,
+   "recall any@1": 132,
+   "search all@5": 102,
+   "recall all@5": 127
+  },
+  "single-session-assistant": {
+   "n": 56,
+   "search any@1": 56,
+   "recall any@1": 56,
+   "search all@5": 56,
+   "recall all@5": 56
+  },
+  "single-session-preference": {
+   "n": 30,
+   "search any@1": 21,
+   "recall any@1": 25,
+   "search all@5": 27,
+   "recall all@5": 29
+  },
+  "single-session-user": {
+   "n": 70,
+   "search any@1": 57,
+   "recall any@1": 69,
+   "search all@5": 66,
+   "recall all@5": 70
+  },
+  "temporal-reasoning": {
+   "n": 133,
+   "search any@1": 110,
+   "recall any@1": 127,
+   "search all@5": 106,
+   "recall all@5": 126
+  }
+ }
+}

@@ -13,6 +13,10 @@ LongMemEval-S, all 470 answerable questions, `jev` reranker with [`contrib-promp
 | **All evidence sessions in the top 5** | 410 / 470 (87.2%) | **458 / 470 (97.4%)** |
 | All evidence sessions in the top 10 | 445 / 470 (94.7%) | 463 / 470 (98.5%) |
 | An evidence session ranked #1 | 410 / 470 (87.2%) | 458 / 470 (97.4%) |
+| Any evidence session in the top 5, all 500 questions | 484 / 500 (96.8%) | **498 / 500 (99.6%)** |
+
+The last row includes the 30 abstention questions, which other published LongMemEval-S recall figures
+also score. [docs/benchmarks.md](../../docs/benchmarks.md) compares these numbers with other memory systems.
 
 | Question type | n | Search #1 | Rerank #1 | All evidence in top 5 |
 |---|---|---|---|---|
@@ -55,7 +59,8 @@ For each question the harness:
 
 1. writes each session to its own Markdown file (`<session_id>.md`, with the session date in the body),
 2. builds a fresh deep-recall index over those files,
-3. runs `deeprecall search` (first stage only) and `deeprecall recall` (reranked), keeping the top 10,
+3. runs `deeprecall search` (hybrid keyword + vector search) and `deeprecall recall` (the same search plus
+   the rare-term leg's exact-match candidates, scored by the reranker), keeping the top 10 of each,
 4. scores both lists against `answer_session_ids`.
 
 | Metric | Meaning |
@@ -65,8 +70,9 @@ For each question the harness:
 | `any@5` | at least one evidence session is in the top 5 |
 | `any@1` | the #1 file is an evidence session |
 
-The 30 abstention questions (`question_id` ending in `_abs`) have no evidence to find and are excluded,
-as in LongMemEval's own retrieval evaluation.
+The 30 abstention questions (`question_id` ending in `_abs`) ask about something never said, so LongMemEval's
+own retrieval evaluation excludes them. The dataset still labels related sessions for them, and other
+projects' published recall figures score all 500. `--include-abstention` scores them too.
 
 ## Reproduce it
 
@@ -114,7 +120,8 @@ python bench/longmemeval/run.py runs/s-470 --data longmemeval_s_cleaned.json --n
 About 4 hours on an Apple M4 Pro: ~21 s to index each haystack, ~8 s to rerank. Re-running the same
 command resumes where it stopped. A run directory is tied to its settings (`run.json`), so a different
 `--n`, `--seed`, `--backend` or prompt needs a new directory. Omit `--prompt-file` to use the default
-prompt, and use a smaller `--n` for a stratified sample (seeded by `--seed`, default 0).
+prompt, and use a smaller `--n` for a stratified sample (seeded by `--seed`, default 0). For all 500
+questions, add `--include-abstention` and set `--n 500`.
 
 The run stops with exit 1 if any question's reranker did not run (for example, a missing or expired API
 key), rather than scoring search order as reranked recall.
@@ -164,7 +171,7 @@ pointing at your own notes cannot leak into the benchmark.
 
 ## Committed results
 
-[`results/`](results/) holds the three runs quoted above, each as `summary.json` plus `rows.ndjson`
+[`results/`](results/) holds the four runs quoted above, each as `summary.json` plus `rows.ndjson`
 (ids, rankings and metrics; no dataset text).
 
 | Directory | Run | Per-question fields the original run did not record |
@@ -172,5 +179,6 @@ pointing at your own notes cannot leak into the benchmark.
 | `s-470-contrib-prompt` | all 470, contribution prompt | `scores` (only `top_score`), `pool`, `note`, `secs_index` |
 | `s-50-default-prompt` | 50 (seed 0), default prompt | `scores` (only `top_score`), `pool`, `note`, `secs_index` |
 | `s-50-contrib-prompt` | the same 50, contribution prompt | `tokens`, `secs_recall`, `pool`, `note`, `secs_index` |
+| `s-500-contrib-prompt` | all 500 (`--include-abstention`): the 470 above plus the 30 abstention questions | as `s-470-contrib-prompt` for the 470; none for the 30 |
 
 A run of the current `run.py` records every field in the table in step 5.
