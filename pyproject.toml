@@ -33,5 +33,10 @@ build-backend = "hatchling.build"
 [tool.hatch.build.targets.wheel]
 packages = ["src/deeprecall"]
 
+[tool.uv]
+# Supply-chain floor: resolve only releases published before this instant. Advance it deliberately,
+# keeping it at least 7 days behind the date of the lock.
+exclude-newer = "2026-09-22T00:00:00Z"
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
