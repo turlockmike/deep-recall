@@ -7,7 +7,7 @@ Abstention questions (question_id ending in _abs) are left out unless --include-
 dataset still labels sessions for them, and other published LongMemEval-S recall figures score all 500.
 
   python bench/longmemeval/run.py OUT_DIR --data longmemeval_s_cleaned.json [--n 470] [--backend jev]
-                                  [--prompt-file bench/longmemeval/contrib-prompt.txt] [--max-usd 4]
+                                  [--prompt-file bench/longmemeval/contrib-prompt.txt] [--question-kinds] [--max-usd 4]
 
 Needs the deeprecall CLI on PATH (or $DEEPRECALL_BIN) and the backend's credentials (jev: $TYPESAFE_API_KEY).
 Every deeprecall call runs with the other DEEPRECALL_* variables removed, so each question's own
@@ -125,7 +125,21 @@ def _index(d: Path, qid: str) -> None:
         _run([BIN, "index", "--quiet"], d)
 
 
-def one(q: dict, out: Path, backend: str, prompt: str) -> dict:
+def configure(base: str, prompt: str, question_kinds: bool) -> str:
+    """`deeprecall init`'s config with the benchmark's reranker prompt and question-kind setting applied."""
+    if prompt:
+        if "[reranker]\n" not in base or "prompt =" in base:
+            raise ValueError("unexpected config layout, cannot set the reranker prompt")
+        # a JSON string is a valid TOML basic string: quotes, backslashes and newlines arrive escaped
+        base = base.replace("[reranker]\n", f"[reranker]\nprompt = {json.dumps(prompt)}\n", 1)
+    if question_kinds:
+        if "question_kinds = false" not in base:
+            raise ValueError("unexpected config layout, cannot turn on question_kinds")
+        base = base.replace("question_kinds = false", "question_kinds = true", 1)
+    return base
+
+
+def one(q: dict, out: Path, backend: str, prompt: str, question_kinds: bool = False) -> dict:
     d = out / "haystacks" / q["question_id"]
     notes = d / "notes"
     notes.mkdir(parents=True, exist_ok=True)
@@ -135,13 +149,11 @@ def one(q: dict, out: Path, backend: str, prompt: str) -> dict:
     cfg = d / ".deeprecall" / "config.toml"
     if not cfg.exists():
         _run([BIN, "init", "--root", str(notes), "--backend", backend, "--here"], d)
-        if prompt:
-            base = cfg.read_text()
-            if "[reranker]\n" not in base or "prompt =" in base:
-                cfg.unlink()
-                raise RuntimeError(f"{cfg}: unexpected config layout, cannot set the reranker prompt")
-            # a JSON string is a valid TOML basic string: quotes, backslashes and newlines arrive escaped
-            cfg.write_text(base.replace("[reranker]\n", f"[reranker]\nprompt = {json.dumps(prompt)}\n", 1))
+        try:
+            cfg.write_text(configure(cfg.read_text(), prompt, question_kinds))
+        except ValueError as e:
+            cfg.unlink()
+            raise RuntimeError(f"{cfg}: {e}") from e
     t0 = time.time()
     _index(d, q["question_id"])
     t_index = time.time() - t0
@@ -155,7 +167,7 @@ def one(q: dict, out: Path, backend: str, prompt: str) -> dict:
     sp, rp = [x["path"] for x in s], [x["path"] for x in r["results"]]
     return {"qid": q["question_id"], "type": q["question_type"], "gold": sorted(gold), "search": sp, "recall": rp,
             "scores": [x["score"] for x in r["results"]], "search_score": score(sp, gold), "recall_score": score(rp, gold),
-            "mode": r["mode"], "note": r["note"], "pool": r["pool"], "widened": r["widened"], "usd": r["usd"],
+            "mode": r["mode"], "note": r["note"], "kind": r.get("kind"), "pool": r["pool"], "widened": r["widened"], "usd": r["usd"],
             "tokens": r["tokens"], "secs_recall": r["secs"], "secs_index": round(t_index, 1)}
 
 
@@ -189,6 +201,8 @@ def main(argv: list[str] | None = None) -> int:
                     help="also score the 30 abstention questions (500 = all of LongMemEval-S)")
     ap.add_argument("--backend", default="jev")
     ap.add_argument("--prompt-file", help="jev prompt override; must contain {q}")
+    ap.add_argument("--question-kinds", action="store_true",
+                    help="classify each question first: its kind picks the prompt, and aggregate/temporal always widen (jev)")
     ap.add_argument("--max-usd", type=float, default=1.0, help="stop before the next question once spend reaches this")
     a = ap.parse_args(argv)
     prompt = ""
@@ -198,6 +212,9 @@ def main(argv: list[str] | None = None) -> int:
         if bad:
             print(json.dumps({"error": bad}), file=sys.stderr)
             return 2
+    if a.question_kinds and a.backend not in PROMPT_BACKENDS:
+        print(json.dumps({"error": f"--question-kinds applies to {sorted(PROMPT_BACKENDS)}, not {a.backend!r}"}), file=sys.stderr)
+        return 2
     try:
         qs = sample(json.load(open(a.data)), a.n, a.seed, a.include_abstention)
     except (OSError, ValueError, KeyError) as e:
@@ -205,7 +222,7 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     out = Path(a.out).resolve()
     settings = {"data": Path(a.data).name, "n": a.n, "seed": a.seed, "backend": a.backend, "prompt": prompt,
-                "include_abstention": a.include_abstention, "blind_ids": True}
+                "include_abstention": a.include_abstention, "blind_ids": True, "question_kinds": a.question_kinds}
     run_f = out / "run.json"
     if run_f.exists() and json.loads(run_f.read_text()) != settings:
         print(json.dumps({"error": f"{out} was started with other settings; use a new directory",
@@ -226,7 +243,7 @@ def main(argv: list[str] | None = None) -> int:
             print(json.dumps({"event": "stop", "reason": f"spend ${spent:.4f} reached --max-usd {a.max_usd}"}), file=sys.stderr)
             break
         try:
-            row = one(q, out, a.backend, prompt)
+            row = one(q, out, a.backend, prompt, a.question_kinds)
         except RuntimeError as e:
             print(json.dumps({"error": str(e)}), file=sys.stderr)
             return 1
@@ -235,7 +252,7 @@ def main(argv: list[str] | None = None) -> int:
         with rows_f.open("a") as f:
             f.write(json.dumps(row) + "\n")
         print(json.dumps({"i": i, "qid": row["qid"], "type": row["type"], "all@5": row["recall_score"]["all@5"],
-                          "mode": row["mode"], "usd": row["usd"], "spent": round(spent, 4)}), file=sys.stderr, flush=True)
+                          "mode": row["mode"], "kind": row["kind"], "usd": row["usd"], "spent": round(spent, 4)}), file=sys.stderr, flush=True)
     summary = json.dumps(summarize(rows, a.backend), indent=1)
     (out / "summary.json").write_text(summary + "\n")
     print(summary)

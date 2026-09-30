@@ -4,6 +4,9 @@
   2. every candidate file -> heading-bounded windows (reranker's preferred size, <= max_windows/file)
   3. reranker scores every window: P(window states the answer); file score = best window
   4. rank; if best < widen_at, widen once to hybrid top-widen_k and score only the new files
+With question_kinds, the reranker first classifies the question (one small request). The kind picks the
+reranker's prompt, and a kind in widen_kinds widens whatever the best score: a count or a timeline needs
+every mention, and one confident hit says nothing about the rest.
 Non-question queries (no '?', no leading question word) skip step 2-4: first-stage order is
 already right for keyword lookups, and "does this state the answer?" is ill-posed for them.
 Any reranker failure (budget, network, auth) falls back to first-stage order.
@@ -81,6 +84,7 @@ class Result:
     tokens: int = 0
     secs: float = 0.0
     note: str = ""
+    kind: str | None = None
     extra: dict = field(default_factory=dict)
 
 
@@ -104,8 +108,20 @@ class Recaller:
     def first_stage(self, q: str, k: int) -> list[str]:
         return [p for p, _ in search(self.cfg, q, k)]
 
-    def _score_files(self, q, paths, cache, passages, budget):
-        rr = self.reranker
+    def _classify(self, q: str, budget: Budget) -> tuple[str | None, int]:
+        """The question's kind and the tokens it cost; a failed classification loses only the kind."""
+        try:
+            rr = self.reranker
+            budget.check((len(q) + 900) / 3 * rr.usd_per_token)
+            rr.last_tokens = 0
+            kind = rr.classify(q)
+        except Exception:
+            return None, 0
+        budget.record(rr.name, rr.last_tokens, rr.last_tokens * rr.usd_per_token)
+        return kind, rr.last_tokens
+
+    def _score_files(self, q, paths, cache, passages, budget, rr=None):
+        rr = rr or self.reranker
         todo = [p for p in paths if p not in cache]
         wins: list[Passage] = []
         for p in todo:
@@ -146,13 +162,18 @@ class Recaller:
         res = Result(q, [], "rerank:" + str(cfg.reranker.get("backend")), len(pool))
         res.extra["first_stage_top3"] = fs[:3]
         try:
-            res.tokens += self._score_files(q, pool, cache, passages, budget)
+            if cfg.question_kinds:
+                res.kind, tokens = self._classify(q, budget)
+                res.tokens += tokens
+            rr = self.reranker.for_kind(res.kind)
+            res.tokens += self._score_files(q, pool, cache, passages, budget, rr)
             ranked = sorted(pool, key=lambda p: (-cache[p][0], pool.index(p)))
-            widen_at = self.reranker.widen_at if cfg.widen_at == "auto" else float(cfg.widen_at)
-            if ranked and cache[ranked[0]][0] < widen_at and cfg.widen_k > k:
+            widen_at = rr.widen_at if cfg.widen_at == "auto" else float(cfg.widen_at)
+            unsure = ranked and cache[ranked[0]][0] < widen_at
+            if ranked and (unsure or res.kind in cfg.widen_kinds) and cfg.widen_k > k:
                 wide = list(dict.fromkeys(pool + self.first_stage(q, cfg.widen_k)))
                 try:
-                    res.tokens += self._score_files(q, wide, cache, passages, budget)
+                    res.tokens += self._score_files(q, wide, cache, passages, budget, rr)
                     ranked = sorted(wide, key=lambda p: (-cache[p][0], wide.index(p)))
                     res.widened, res.pool = True, len(wide)
                 except Exception as e:  # keep the first pass result
@@ -175,7 +196,7 @@ class Recaller:
             with open(self.cfg.recall_log, "a") as f:
                 f.write(json.dumps({"ts": time.strftime("%Y-%m-%dT%H:%M:%S%z"), "q": r.query, "mode": r.mode,
                                     "top": [[h.path, h.score] for h in r.hits[:3]], "pool": r.pool,
-                                    "widened": r.widened, "usd": r.usd, "secs": r.secs, "note": r.note,
+                                    "widened": r.widened, "usd": r.usd, "secs": r.secs, "note": r.note, "kind": r.kind,
                                     "first_stage_top3": r.extra.get("first_stage_top3"),
                                     "widen_at": r.extra.get("widen_at")}) + "\n")
         except OSError:

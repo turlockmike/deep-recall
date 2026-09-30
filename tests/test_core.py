@@ -234,3 +234,93 @@ def test_concurrent_build_is_skipped(cfg):
         r = idx.build(cfg, quiet=True)
     assert r.get("skipped")
     assert idx.build(cfg, quiet=True).get("skipped") is None
+
+
+class KindFake(KeywordFake):
+    """KeywordFake that classifies every question as `kind`, and scores `marker_for` kinds by another marker."""
+
+    def __init__(self, kind="aggregate", marker="Saver Plus 12", marker_for=None, **_):
+        super().__init__(marker)
+        self.kind, self.marker_for, self.classified = kind, marker_for or {}, 0
+
+    def classify(self, q):
+        self.classified += 1
+        self.last_tokens = 40
+        if isinstance(self.kind, Exception):
+            raise self.kind
+        return self.kind
+
+    def for_kind(self, kind):
+        return KindFake(self.kind, self.marker_for[kind]) if kind in self.marker_for else self
+
+
+class OneFileFirst(Recaller):          # the answer is already in a k=1 pool; widening adds the garden note
+    def first_stage(self, q, k):
+        return ["home/utilities.md"] if k == 1 else ["home/utilities.md", "home/garden.md"]
+
+
+def test_question_kind_widens_a_confident_pool(cfg):
+    cfg.reranker, cfg.widen_k = {"backend": "fake"}, 50
+    q = "Which electricity plan did we switch to?"
+    assert not OneFileFirst(cfg, KindFake()).recall(q, top=3, k=1).widened     # question_kinds is off
+    cfg.question_kinds = True
+    r = OneFileFirst(cfg, KindFake("aggregate")).recall(q, top=3, k=1)
+    assert r.kind == "aggregate" and r.widened and r.hits[0].path == "home/utilities.md"
+    assert not OneFileFirst(cfg, KindFake("single_fact")).recall(q, top=3, k=1).widened
+
+
+def test_question_kind_picks_the_reranker(cfg):
+    cfg.reranker, cfg.question_kinds = {"backend": "fake"}, True
+    q = "Which electricity plan did we switch to?"
+    rr = KindFake("preference", marker_for={"preference": "Cherokee Purple"})
+    r = Recaller(cfg, rr).recall(q, top=3, k=9)
+    assert r.kind == "preference" and r.hits[0].path == "home/garden.md"
+    assert Recaller(cfg, KindFake("single_fact", marker_for={"preference": "Cherokee Purple"})).recall(q, top=3, k=9) \
+        .hits[0].path == "home/utilities.md"
+
+
+def test_failed_classification_only_loses_the_kind(cfg):
+    cfg.reranker, cfg.question_kinds = {"backend": "fake"}, True
+    r = Recaller(cfg, KindFake(RuntimeError("HTTP 500"))).recall("Which electricity plan did we switch to?", k=9)
+    assert r.mode.startswith("rerank") and r.kind is None and r.hits[0].path == "home/utilities.md"
+
+
+def test_classification_is_billed_and_logged(cfg):
+    cfg.reranker, cfg.question_kinds = {"backend": "fake"}, True
+    rr = KindFake("temporal")
+    r = Recaller(cfg, rr).recall("Which electricity plan did we switch to?", k=9)
+    assert rr.classified == 1 and r.tokens > 40
+    log = [json.loads(l) for l in open(cfg.recall_log)]
+    assert log[-1]["kind"] == "temporal"
+
+
+def test_question_kinds_config(tmp_path):
+    c = tmp_path / "config.toml"
+    c.write_text('roots = ["."]\n[recall]\nquestion_kinds = true\nwiden_kinds = ["aggregate"]\n')
+    conf = load(c)
+    assert conf.question_kinds and conf.widen_kinds == ["aggregate"]
+    c.write_text('roots = ["."]\n')
+    assert not load(c).question_kinds and load(c).widen_kinds == ["aggregate", "temporal"]
+
+
+def test_jev_classify_and_kind_prompts(monkeypatch):
+    from deeprecall.rerankers import jev
+    sent = []
+
+    def fake_post(url, body, headers, timeout=60):
+        sent.append(body)
+        return {"answers": {"kind": {"choice": reply[0]}}, "usage": {"input_tokens": 123}}
+    monkeypatch.setattr(jev, "post_json", fake_post)
+    monkeypatch.setenv("TYPESAFE_API_KEY", "k")
+    reply = ["preference"]
+    rr = jev.JevReranker()
+    assert rr.classify("Any tips for my commute?") == "preference" and rr.last_tokens == 123
+    q = sent[-1]["questions"]["kind"]
+    assert q["type"] == "choice" and set(q["criteria"]) == set(jev.KINDS)
+    assert sent[-1]["state"] == {"question": "Any tips for my commute?"}
+    reply[0] = "something_else"
+    assert rr.classify("?") is None
+    tuned = rr.for_kind("preference")
+    assert tuned.prompt == jev.KIND_PROMPTS["preference"] and rr.prompt == jev.PROMPT
+    assert rr.for_kind("aggregate") is rr and rr.for_kind(None) is rr
+    assert jev.JevReranker(kind_prompts={}).for_kind("preference").prompt == jev.PROMPT

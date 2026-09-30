@@ -120,6 +120,7 @@ state the answer?" is ill-posed for them.
    - Each candidate file is cut into heading-bounded windows, sized to the reranker (≤ 24 per file).
    - The reranker scores every window as P(states the answer), and a file takes its best window.
 5. **Widen when unsure.** If the best score is below the backend's threshold, widen once to the top 150 and score only the new files.
+   - Optional, `jev` only (`[recall] question_kinds = true`): one small request first classifies the question as a single fact, a latest value, an aggregate, a question about time, or a recommendation. Aggregate and temporal questions always widen, because a count or a timeline needs every mention and one confident hit says nothing about the rest. Recommendations are scored with a prompt that asks whether a passage says something about the user that should shape the answer.
 6. **Fail open.** Any reranker error (network, auth, budget) returns first-stage order with a note.
 
 ## Rerankers (plug in any "jev-like" model)
@@ -137,6 +138,11 @@ state the answer?" is ill-posed for them.
 backend = "jev"                  # needs TYPESAFE_API_KEY
 # widen_at = 0.7                 # override the backend's confidence threshold
 # window_words = 600
+# kind_prompts = {}              # with question_kinds: per-kind prompts; {} keeps one prompt for every kind
+
+[recall]
+# question_kinds = true          # classify the question first; see "Widen when unsure" above
+# widen_kinds = ["aggregate", "temporal"]
 ```
 
 ```toml

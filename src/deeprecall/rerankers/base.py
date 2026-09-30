@@ -57,6 +57,15 @@ class Reranker:
     def score(self, question: str, passages: list[Passage]) -> list[float]:  # pragma: no cover
         raise NotImplementedError
 
+    def classify(self, question: str) -> str | None:
+        """The question's kind (e.g. "aggregate"), or None if this backend doesn't classify.
+        Sets last_tokens like score()."""
+        return None
+
+    def for_kind(self, kind: str | None) -> "Reranker":
+        """A reranker tuned for this kind of question; by default, this one."""
+        return self
+
 
 class NoReranker(Reranker):
     """Keeps first-stage order (scores descend with rank)."""
