@@ -324,3 +324,41 @@ def test_jev_classify_and_kind_prompts(monkeypatch):
     assert tuned.prompt == jev.KIND_PROMPTS["preference"] and rr.prompt == jev.PROMPT
     assert rr.for_kind("aggregate") is rr and rr.for_kind(None) is rr
     assert jev.JevReranker(kind_prompts={}).for_kind("preference").prompt == jev.PROMPT
+
+
+def test_widen_that_adds_nothing_is_not_billed_again(cfg):
+    class SamePool(Recaller):          # widening finds no file the first pass didn't already score
+        def first_stage(self, q, k):
+            return ["home/utilities.md", "home/garden.md"]
+    cfg.reranker, cfg.question_kinds, cfg.widen_k = {"backend": "fake"}, True, 50
+    rr = KindFake("aggregate")
+    r = SamePool(cfg, rr).recall("Which electricity plan did we switch to?", top=3, k=2)
+    first_pass = sum(1 for _ in open(cfg.ledger))
+    assert not r.widened
+    ledger = [json.loads(l) for l in open(cfg.ledger)]
+    assert first_pass == 2 and r.tokens == 40 + ledger[-1]["tokens"]
+
+
+def test_classify_tokens_are_recorded_when_the_reply_is_malformed(cfg):
+    class Malformed(KindFake):
+        def classify(self, q):
+            self.last_tokens = 40
+            raise KeyError("kind")
+    cfg.reranker, cfg.question_kinds = {"backend": "fake"}, True
+    r = Recaller(cfg, Malformed()).recall("Which electricity plan did we switch to?", k=9)
+    ledger = [json.loads(l) for l in open(cfg.ledger)]
+    assert r.kind is None and ledger[0]["tokens"] == 40 and r.tokens > 40
+
+
+def test_widen_kinds_accepts_a_bare_string(tmp_path):
+    c = tmp_path / "config.toml"
+    c.write_text('roots = ["."]\n[recall]\nwiden_kinds = "aggregate"\n')
+    assert load(c).widen_kinds == ["aggregate"]
+
+
+def test_jev_classify_survives_a_reply_without_answers(monkeypatch):
+    from deeprecall.rerankers import jev
+    monkeypatch.setattr(jev, "post_json", lambda *a, **k: {"usage": {"input_tokens": 77}})
+    monkeypatch.setenv("TYPESAFE_API_KEY", "k")
+    rr = jev.JevReranker()
+    assert rr.classify("How many?") is None and rr.last_tokens == 77

@@ -79,7 +79,7 @@ class JevReranker(Reranker):
                       {"kind": {"type": "choice", "instructions": "What kind of memory lookup does `question` need?",
                                 "criteria": KINDS}})
         self.last_tokens = int(r.get("usage", {}).get("input_tokens", 0))
-        kind = r["answers"]["kind"].get("choice")
+        kind = (r.get("answers", {}).get("kind") or {}).get("choice")
         return kind if kind in KINDS else None
 
     def for_kind(self, kind: str | None) -> "JevReranker":
