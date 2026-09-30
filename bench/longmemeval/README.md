@@ -57,7 +57,10 @@ passing, and the dataset labels which sessions contain it (`answer_session_ids`)
 
 For each question the harness:
 
-1. writes each session to its own Markdown file (`<session_id>.md`, with the session date in the body),
+1. writes each session to its own Markdown file, with the session date in the body, under a name derived
+   from a hash of the question and session ids (`s<10 hex>.md`). LongMemEval names evidence sessions
+   `answer_*`, and a file's name reaches the index (as its title), every reranker window (as its heading)
+   and the `jev` request (as `path`), so the dataset's own ids would label the evidence.
 2. builds a fresh deep-recall index over those files,
 3. runs `deeprecall search` (hybrid keyword + vector search) and `deeprecall recall` (the same search plus
    the rare-term leg's exact-match candidates, scored by the reranker), keeping the top 10 of each,
@@ -133,7 +136,7 @@ key), rather than scoring search order as reranked recall.
 
 | Field | Content |
 |---|---|
-| `qid`, `type`, `gold` | question id, question type, evidence session files |
+| `qid`, `type`, `gold` | question id, question type, evidence session files (`run.blind_name(qid, session_id)` maps a dataset session id to its file) |
 | `search`, `recall` | top-10 session files from first-stage search and from reranked recall |
 | `scores` | reranker score for each file in `recall` |
 | `search_score`, `recall_score` | the four metrics for each list |
@@ -163,6 +166,11 @@ pointing at your own notes cannot leak into the benchmark.
 - **Runs agree up to ties.** Re-running a question with this `run.py` at the current commit reproduced its
   top ranks, cost and metrics. Files tied at the reranker's 0.01 floor can swap places, and individual
   scores can move by about 0.01.
+- **The committed runs used the dataset's session ids as file names**, so every evidence file was named
+  `answer_*`. Re-running the 50-question sample (seed 0, contribution prompt) with neutral names gave the
+  same reranked results on every question: all evidence in the top 5 for 50 / 50, an evidence session #1
+  for 48 / 50. Hybrid search did slightly better without the label (all evidence in the top 5: 45 / 50,
+  against 43), so the committed search column is, if anything, a little low.
 - **This is retrieval, not answering.** It shows the evidence reached the context, not that a model used it
   correctly. LongMemEval's published leaderboard scores end-to-end answers, so the two numbers are not
   comparable.
