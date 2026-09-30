@@ -11,11 +11,10 @@ the per-question results.
 | LongMemEval-S | all evidence sessions in the top 5 | 87.2% | **97.4%** | 470 answerable |
 | LongMemEval-S | any evidence session in the top 5 | 96.8% | **99.6%** | all 500 |
 | LongMemEval-S | answered correctly, end to end (Claude Sonnet 5.5 reading the top 5) | — | 96% (48/50) | 50 |
-| A real 5,200-note agent memory | right file ranked #1 | 61.6% | ~97% | 99 held-out |
 
 "+ reranker" is `deeprecall recall`: the same hybrid search plus the rare-term leg's exact-match
 candidates, scored by the `jev` reranker. LongMemEval runs use
-[`contrib-prompt.txt`](../bench/longmemeval/contrib-prompt.txt). The 5,200-note run uses the default prompt.
+[`contrib-prompt.txt`](../bench/longmemeval/contrib-prompt.txt).
 
 ## LongMemEval-S retrieval
 
@@ -70,34 +69,6 @@ questions (seed 0) were run end to end:
   6 or 7. That run used the default prompt; the contribution prompt puts all evidence in the top 5 for
   both.
 - It cost $2.88, which is $0.058 per question.
-
-## A real agent memory
-
-The reranker was built on a 5,200-file agent memory: working notes, meeting records and project docs.
-The test was 99 held-out questions whose answer is one sentence past word 500 of a long file, graded by a
-blind LLM judge.
-
-| | Right file ranked #1 |
-|---|---|
-| Hybrid search | 61.6% |
-| + rare-term leg + section-level reranking (`jev`, k=20) | ~97% |
-| The same, k=50 | 99.0% |
-
-This corpus is private, so these numbers cannot be reproduced. They show the reranker holding up on the
-kind of data it is meant for: many near-duplicate notes on the same topics, where search alone falls to
-61.6%.
-
-A smaller smoke test on a 115-file, 200k-word slice of the same memory (12 questions):
-
-| | #1 right | Time per question | Cost per question |
-|---|---|---|---|
-| Hybrid search | 11/12 | ~0.2 s | free |
-| `cross-encoder` (local) | 11/12 | ~20 s on a busy 4-core box | free |
-| `jev` | 10/12 exact-path (the 2 misses rank another note that states the same fact) | ~3 s | ~0.8¢ |
-
-On a small corpus, search alone is already strong. The reranker pays off as the corpus grows and fills
-with near-duplicates. The local cross-encoder is CPU-bound: set `threads` under `[reranker]` to your core
-count.
 
 ## What these numbers do not show
 

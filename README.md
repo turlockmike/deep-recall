@@ -6,7 +6,7 @@ Memory for AI agents, over plain Markdown notes. A hybrid search gathers candida
 **reranker** reads each passage and scores one thing: *does this contain the answer?* The passages that
 do go to your model, so whatever LLM you plug in gets the facts, not the neighbourhood.
 
-<p align="center"><img src="docs/img/reranker-lift.svg" alt="Hybrid search vs Deep Recall's reranker: 61.6% to about 97% on a 5,200-note agent memory, 87.2% to 97.4% on LongMemEval-S" width="760"></p>
+<p align="center"><img src="docs/img/reranker-lift.svg" alt="LongMemEval-S, hybrid search vs Deep Recall's reranker: every evidence session in the top 5, 87.2% to 97.4%; any evidence session in the top 5, 96.8% to 99.6%" width="760"></p>
 
 - **99.6% on LongMemEval-S.** On 498 of 500 questions, evidence for the answer reached the top 5 files.
   On 97.4% of the answerable ones, *all* of it did. These are retrieval numbers: they measure the context,
@@ -46,7 +46,7 @@ The competing figures are each project's own session-level `recall_any@5`, read 
 
 Most published LongMemEval scores are end to end: a memory system *plus* a chosen answering model and
 judge, so they measure the model as much as the memory. How those compare, a 50-question end-to-end spot
-check of Deep Recall, and results on a real 5,200-note memory are in [docs/benchmarks.md](docs/benchmarks.md).
+check of Deep Recall, and the full results are in [docs/benchmarks.md](docs/benchmarks.md).
 
 ## Install
 
@@ -221,7 +221,7 @@ Environment overrides: `DEEPRECALL_ROOTS` (path-separated), `DEEPRECALL_INDEX`, 
 ## Limits
 
 - Markdown only (`*.md`).
-- First index is CPU-bound (one embedding per 350-word chunk and per section). Measured on a busy 4-core WSL box: 90k words in 7 minutes. Later runs only re-embed changed files.
+- First index is CPU-bound (one embedding per 350-word chunk and per section). A LongMemEval-S haystack (about 80k words) indexes in about 21 s on an Apple M4 Pro. Later runs only re-embed changed files.
 - Hosted rerankers send note text to that provider. Use `cross-encoder` or a local `openai`-compatible server for private notes.
 
 ## Development

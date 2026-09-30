@@ -187,7 +187,7 @@ def test_charts_render_the_committed_results_and_match_the_checked_in_svgs():
     res = Path(charts.HERE) / "results"
     lme = json.loads((res / "s-470-contrib-prompt" / "summary.json").read_text())
     lme500 = json.loads((res / "s-500-contrib-prompt" / "summary.json").read_text())
-    lift, miss = charts.reranker_lift(lme), charts.misses(lme500)
+    lift, miss = charts.reranker_lift(lme, lme500), charts.misses(lme500)
     assert f"{lme['recall']['all@5'] / lme['n'] * 100:.1f}%" in lift
     assert f">{lme500['n'] - lme500['recall']['any@5']} of {lme500['n']}<" in miss
     assert (charts.OUT / "reranker-lift.svg").read_text() == lift

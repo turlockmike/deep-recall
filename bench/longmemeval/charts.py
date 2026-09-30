@@ -4,7 +4,7 @@
   python bench/longmemeval/charts.py            # writes docs/img/reranker-lift.svg, docs/img/longmemeval-misses.svg
 
 deep-recall numbers come from bench/longmemeval/results/*/summary.json. Numbers for other systems are the
-constants in OTHERS, each with the source it was read from; the 5,200-note figures are the README's own.
+constants in OTHERS, each with the source it was read from.
 """
 from __future__ import annotations
 
@@ -19,8 +19,6 @@ OTHERS = [
     ("MemPalace (raw)", 0.966, "https://github.com/MemPalace/mempalace (README; recall_any@5 in benchmarks/longmemeval_bench.py)"),
     ("agentmemory", 0.952, "https://github.com/rohitg00/agentmemory/blob/main/benchmark/LONGMEMEVAL.md (recall_any@K)"),
 ]
-# The README's held-out set on a 5,200-file agent memory: right file ranked #1, 99 questions.
-PRIVATE = {"search": 0.616, "rerank": 0.97}
 
 LIGHT = {"surface": "#fcfcfb", "ink": "#0b0b0b", "ink2": "#52514e", "muted": "#898781", "grid": "#e1e0d9",
          "axis": "#c3c2b7", "gray": "#a8a69e", "accent": "#2a78d6"}
@@ -55,14 +53,14 @@ def _pct(v: float) -> str:
     return f"{v * 100:.1f}%" if v * 100 % 1 else f"{v * 100:.0f}%"
 
 
-def reranker_lift(lme: dict) -> str:
-    """Paired bars per corpus: hybrid search vs the same search plus the answerability reranker."""
+def reranker_lift(lme: dict, lme500: dict) -> str:
+    """Paired bars per LongMemEval-S measure: hybrid search vs the same search plus the answerability reranker."""
     W, x0, plot = 760, 250, 420
     groups = [
-        ("A real 5,200-note agent memory", "right file ranked #1 · 99 held-out questions",
-         PRIVATE["search"], PRIVATE["rerank"], "~"),
-        ("LongMemEval-S (public benchmark)", "every evidence session in the top 5 · 470 questions",
+        ("Every evidence session in the top 5", f"LongMemEval-S · {lme['n']} answerable questions",
          lme["search"]["all@5"] / lme["n"], lme["recall"]["all@5"] / lme["n"], ""),
+        ("Any evidence session in the top 5", f"LongMemEval-S · all {lme500['n']} questions",
+         lme500["search"]["any@5"] / lme500["n"], lme500["recall"]["any@5"] / lme500["n"], ""),
     ]
     body = [f'<text class="ink" x="24" y="40" font-size="20" font-weight="600">Search finds notes about the question. '
             f'The reranker finds the answer.</text>',
@@ -86,9 +84,9 @@ def reranker_lift(lme: dict) -> str:
     body.append(f'<text class="muted" x="24" y="{y + 20}" font-size="11">LongMemEval: github.com/xiaowu0162/LongMemEval'
                 f' · results and method: bench/longmemeval/</text>')
     return _svg(W, y + 38, "What the reranker adds",
-                "Hybrid search alone versus with deep-recall's answerability reranker. "
-                f"5,200-note memory: {_pct(PRIVATE['search'])} to about {_pct(PRIVATE['rerank'])}. "
-                f"LongMemEval-S: {_pct(groups[1][2])} to {_pct(groups[1][3])}.", "".join(body))
+                "Hybrid search alone versus with deep-recall's answerability reranker on LongMemEval-S. "
+                f"Every evidence session in the top 5: {_pct(groups[0][2])} to {_pct(groups[0][3])}. "
+                f"Any evidence session in the top 5: {_pct(groups[1][2])} to {_pct(groups[1][3])}.", "".join(body))
 
 
 def misses(lme500: dict) -> str:
@@ -126,7 +124,7 @@ def main() -> None:
     lme = json.loads((res / "s-470-contrib-prompt" / "summary.json").read_text())
     lme500 = json.loads((res / "s-500-contrib-prompt" / "summary.json").read_text())
     OUT.mkdir(parents=True, exist_ok=True)
-    (OUT / "reranker-lift.svg").write_text(reranker_lift(lme))
+    (OUT / "reranker-lift.svg").write_text(reranker_lift(lme, lme500))
     (OUT / "longmemeval-misses.svg").write_text(misses(lme500))
     print(json.dumps({"wrote": [str(p.relative_to(HERE.parent.parent)) for p in sorted(OUT.glob("*.svg"))]}))
 
