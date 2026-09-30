@@ -25,7 +25,7 @@ from .config import TEMPLATE, find_config_file, load
 def _print_recall(r, as_json: bool, show_passage: bool, cap: int = 3000) -> None:
     if as_json:
         print(json.dumps({"query": r.query, "mode": r.mode, "pool": r.pool, "widened": r.widened, "usd": r.usd,
-                          "tokens": r.tokens, "secs": r.secs, "note": r.note,
+                          "tokens": r.tokens, "secs": r.secs, "note": r.note, "kind": r.kind,
                           "results": [{"path": h.path, "score": h.score, "section": h.section} for h in r.hits],
                           "passage": r.hits[0].passage if r.hits else ""}, indent=1))
         return
@@ -38,6 +38,7 @@ def _print_recall(r, as_json: bool, show_passage: bool, cap: int = 3000) -> None
         body = top.passage[:cap] + (" …[truncated; open the file]" if len(top.passage) > cap else "")
         print(f"\n--- #1 winning section ({top.path}) ---\n{body}")
     meta = f"[{r.mode} · pool {r.pool} · ${r.usd:.4f} · {r.secs:.1f}s"
+    meta += f" · {r.kind}" if r.kind else ""
     meta += " · widened" if r.widened else ""
     meta += f" · {r.note}" if r.note else ""
     print(meta + "]", file=sys.stderr)

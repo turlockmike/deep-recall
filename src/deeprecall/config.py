@@ -50,6 +50,8 @@ widen_k = 150
 rare_max_df = 12                   # rare-term leg: keep terms found in <= N files
 max_windows = 24                   # per file; windows widen so big files stay bounded
 question_gate = true               # only rerank question-shaped queries
+question_kinds = false             # classify each question first (jev only); widen_kinds always widen
+widen_kinds = ["aggregate", "temporal"]
 
 [reranker]
 # backend: "cross-encoder" (local, free), "jev" (TypeSafe API), "openai" (any OpenAI-compatible
@@ -97,6 +99,8 @@ class Config:
     rare_max_df: int = 12
     max_windows: int = 24
     question_gate: bool = True
+    question_kinds: bool = False
+    widen_kinds: list[str] = field(default_factory=lambda: ["aggregate", "temporal"])
     reranker: dict = field(default_factory=lambda: {"backend": "cross-encoder"})
     max_usd_per_query: float = 0.05
     daily_cap_usd: float = 1.0
@@ -140,6 +144,8 @@ def load(path: Path | None = None, **overrides) -> Config:
         rare_max_df=int(rec.get("rare_max_df", Config.rare_max_df)),
         max_windows=int(rec.get("max_windows", Config.max_windows)),
         question_gate=bool(rec.get("question_gate", True)),
+        question_kinds=bool(rec.get("question_kinds", False)),
+        widen_kinds=list(rec.get("widen_kinds", Config.__dataclass_fields__["widen_kinds"].default_factory())),
         reranker=dict(raw.get("reranker", {"backend": "cross-encoder"})),
         max_usd_per_query=float(bud.get("max_usd_per_query", Config.max_usd_per_query)),
         daily_cap_usd=float(bud.get("daily_cap_usd", Config.daily_cap_usd)),

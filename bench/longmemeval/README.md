@@ -126,6 +126,9 @@ command resumes where it stopped. A run directory is tied to its settings (`run.
 prompt, and use a smaller `--n` for a stratified sample (seeded by `--seed`, default 0). For all 500
 questions, add `--include-abstention` and set `--n 500`.
 
+`--question-kinds` turns on `[recall] question_kinds` for the run (jev only), and each row then records the
+`kind` jev assigned. It is part of the run's settings, so it needs its own directory.
+
 The run stops with exit 1 if any question's reranker did not run (for example, a missing or expired API
 key), rather than scoring search order as reranked recall.
 
@@ -140,7 +143,7 @@ key), rather than scoring search order as reranked recall.
 | `search`, `recall` | top-10 session files from first-stage search and from reranked recall |
 | `scores` | reranker score for each file in `recall` |
 | `search_score`, `recall_score` | the four metrics for each list |
-| `mode`, `widened`, `usd`, `tokens` | how recall ran, whether it widened, and what it cost |
+| `mode`, `kind`, `widened`, `usd`, `tokens` | how recall ran, the question kind (with `--question-kinds`), whether it widened, and what it cost |
 | `pool`, `note`, `secs_recall`, `secs_index` | files reranked, recall's note, and timings |
 
 To see the misses: `jq -c 'select(.recall_score["all@5"] | not) | {qid, type, gold, recall}' runs/s-470/rows.ndjson`

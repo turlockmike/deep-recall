@@ -143,7 +143,8 @@ def test_main_summarizes_only_the_current_sample(tmp_path, monkeypatch):
     hit = {"any@1": True, "any@5": True, "all@5": True, "all@10": True}
     out.mkdir()
     (out / "run.json").write_text(json.dumps({"data": "d.json", "n": 3, "seed": 0, "backend": "jev", "prompt": "",
-                                             "include_abstention": False, "blind_ids": True}))
+                                             "include_abstention": False, "blind_ids": True,
+                                                 "question_kinds": False}))
     rows = [{**_row("a", hit, hit), "qid": q} for q in ("a-0", "a-1", "a-2", "stale-9")]
     (out / "rows.ndjson").write_text("".join(json.dumps(r) + "\n" for r in rows))
     assert lme.main([str(out), "--data", str(data), "--n", "3"]) == 0
@@ -198,3 +199,12 @@ def test_blind_name_hides_the_evidence_label_and_is_stable():
     n = lme.blind_name("q1", "answer_526354c8_1")
     assert "answer" not in n and n == lme.blind_name("q1", "answer_526354c8_1")
     assert n != lme.blind_name("q2", "answer_526354c8_1")
+
+
+def test_configure_applies_prompt_and_question_kinds():
+    from deeprecall.config import TEMPLATE
+    out = lme.configure(TEMPLATE, 'Is "{q}" answered?', True)
+    assert 'prompt = "Is \\"{q}\\" answered?"' in out and "question_kinds = true" in out
+    assert lme.configure(TEMPLATE, "", False) == TEMPLATE
+    with pytest.raises(ValueError, match="question_kinds"):
+        lme.configure(TEMPLATE.replace("question_kinds = false", ""), "", True)
