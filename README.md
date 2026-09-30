@@ -32,6 +32,17 @@ word 500 of a long file (held-out set, 99 questions, blind LLM judge):
 Those numbers are from one corpus and one reranker (TypeSafe jev). Run `deeprecall eval` on your
 own notes to see where you land.
 
+On a public benchmark, [LongMemEval-S](bench/longmemeval/) (470 answerable questions, each with its own
+~48-session chat history), scored on whether *every* evidence session reaches the top 5:
+
+| | all evidence in top 5 | evidence session #1 |
+|---|---|---|
+| hybrid search alone | 87.2% | 87.2% |
+| + jev rerank ([`contrib-prompt.txt`](bench/longmemeval/contrib-prompt.txt)) | **97.4%** | 97.4% |
+
+$2.43 for all 470 questions. [`bench/longmemeval/`](bench/longmemeval/) has the per-question results and
+step-by-step instructions to reproduce them.
+
 A small smoke test on a 115-file, 200k-word slice of the same memory (12 questions):
 
 | | #1 right | time / question | cost / question |
@@ -177,6 +188,10 @@ or set `backend = "pkg.mod:MyReranker"` directly.
 What mattered in testing:
 - **Score each passage independently.** Asking a model to pick the best of N files was worse than scoring files one by one.
 - **Ask about answerability, not relevance:** "does this passage *explicitly state* the fact that answers the question?"
+- **Questions that combine facts need a different question.** "How many hours did I drive in total?" has no
+  passage that states the answer, so every partial fact scores at the floor. Asking whether a passage holds
+  *part of* the answer ([`contrib-prompt.txt`](bench/longmemeval/contrib-prompt.txt), set as `prompt` under
+  `[reranker]`) put all evidence in the top 5 on 50/50 LongMemEval questions against 48/50 for the default.
 
 ## Cost control
 

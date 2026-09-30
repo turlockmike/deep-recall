@@ -25,7 +25,7 @@ from .config import TEMPLATE, find_config_file, load
 def _print_recall(r, as_json: bool, show_passage: bool, cap: int = 3000) -> None:
     if as_json:
         print(json.dumps({"query": r.query, "mode": r.mode, "pool": r.pool, "widened": r.widened, "usd": r.usd,
-                          "secs": r.secs, "note": r.note,
+                          "tokens": r.tokens, "secs": r.secs, "note": r.note,
                           "results": [{"path": h.path, "score": h.score, "section": h.section} for h in r.hits],
                           "passage": r.hits[0].passage if r.hits else ""}, indent=1))
         return

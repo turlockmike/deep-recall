@@ -119,6 +119,15 @@ def test_recall_reranks_to_answer(cfg):
     assert r.usd > 0 and cfg.ledger.exists()
 
 
+def test_recall_json_reports_tokens(cfg, capsys):
+    import deeprecall.cli as cli
+    cfg.reranker = {"backend": "fake"}
+    r = Recaller(cfg, KeywordFake()).recall("Which electricity plan did we switch to?", top=3, k=9)
+    cli._print_recall(r, True, False)
+    out = json.loads(capsys.readouterr().out)
+    assert out["tokens"] == r.tokens > 0
+
+
 def test_recall_widens_when_unsure(cfg):
     class Narrow(Recaller):          # first stage misses at k=1, finds it when widened
         def first_stage(self, q, k):

@@ -1,0 +1,1 @@
+Does `content` state a fact that is part of the answer to this question: "{q}"? Yes if it gives at least one item, amount, date, event or detail that the answer is built from, even when other parts of the answer are elsewhere. No if it is only the same topic without such a fact.

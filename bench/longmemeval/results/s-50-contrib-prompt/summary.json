@@ -1,0 +1,71 @@
+{
+ "dataset": "LongMemEval-S (longmemeval_s_cleaned.json)",
+ "sample": "seed 0, 50 answerable questions",
+ "prompt": "contrib-prompt.txt",
+ "deep_recall_commit": "bbbeeee",
+ "date": "2026-09-29",
+ "n": 50,
+ "backend": "jev",
+ "search": {
+  "any@1": 40,
+  "any@5": 47,
+  "all@5": 43,
+  "all@10": 47
+ },
+ "recall": {
+  "any@1": 48,
+  "any@5": 50,
+  "all@5": 50,
+  "all@10": 50
+ },
+ "widened": 12,
+ "fail_open": 0,
+ "usd": 0.2595,
+ "usd_per_q": 0.00519,
+ "tokens": null,
+ "mean_secs_recall": null,
+ "by_type": {
+  "knowledge-update": {
+   "n": 8,
+   "search any@1": 6,
+   "recall any@1": 7,
+   "search all@5": 8,
+   "recall all@5": 8
+  },
+  "multi-session": {
+   "n": 13,
+   "search any@1": 12,
+   "recall any@1": 13,
+   "search all@5": 10,
+   "recall all@5": 13
+  },
+  "single-session-assistant": {
+   "n": 6,
+   "search any@1": 6,
+   "recall any@1": 6,
+   "search all@5": 6,
+   "recall all@5": 6
+  },
+  "single-session-preference": {
+   "n": 3,
+   "search any@1": 2,
+   "recall any@1": 3,
+   "search all@5": 3,
+   "recall all@5": 3
+  },
+  "single-session-user": {
+   "n": 7,
+   "search any@1": 6,
+   "recall any@1": 7,
+   "search all@5": 7,
+   "recall all@5": 7
+  },
+  "temporal-reasoning": {
+   "n": 13,
+   "search any@1": 8,
+   "recall any@1": 12,
+   "search all@5": 9,
+   "recall all@5": 13
+  }
+ }
+}

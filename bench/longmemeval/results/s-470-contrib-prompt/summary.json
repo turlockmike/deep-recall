@@ -1,0 +1,71 @@
+{
+ "dataset": "LongMemEval-S (longmemeval_s_cleaned.json)",
+ "sample": "seed 0, 470 answerable questions",
+ "prompt": "contrib-prompt.txt",
+ "deep_recall_commit": "bbbeeee",
+ "date": "2026-09-29",
+ "n": 470,
+ "backend": "jev",
+ "search": {
+  "any@1": 410,
+  "any@5": 455,
+  "all@5": 410,
+  "all@10": 445
+ },
+ "recall": {
+  "any@1": 458,
+  "any@5": 468,
+  "all@5": 458,
+  "all@10": 463
+ },
+ "widened": 119,
+ "fail_open": 0,
+ "usd": 2.4276,
+ "usd_per_q": 0.00517,
+ "tokens": 57798846,
+ "mean_secs_recall": 7.6,
+ "by_type": {
+  "knowledge-update": {
+   "n": 72,
+   "search any@1": 68,
+   "recall any@1": 71,
+   "search all@5": 69,
+   "recall all@5": 72
+  },
+  "multi-session": {
+   "n": 121,
+   "search any@1": 108,
+   "recall any@1": 120,
+   "search all@5": 95,
+   "recall all@5": 115
+  },
+  "single-session-assistant": {
+   "n": 56,
+   "search any@1": 56,
+   "recall any@1": 56,
+   "search all@5": 56,
+   "recall all@5": 56
+  },
+  "single-session-preference": {
+   "n": 30,
+   "search any@1": 21,
+   "recall any@1": 25,
+   "search all@5": 27,
+   "recall all@5": 29
+  },
+  "single-session-user": {
+   "n": 64,
+   "search any@1": 53,
+   "recall any@1": 64,
+   "search all@5": 61,
+   "recall all@5": 64
+  },
+  "temporal-reasoning": {
+   "n": 127,
+   "search any@1": 104,
+   "recall any@1": 122,
+   "search all@5": 102,
+   "recall all@5": 122
+  }
+ }
+}
