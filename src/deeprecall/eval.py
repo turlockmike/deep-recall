@@ -20,7 +20,29 @@ def _read(path: str) -> list[dict]:
     return [json.loads(l) for l in txt.splitlines() if l.strip()]
 
 
+def _experiment_ban() -> str | None:
+    """Mike's jev-experiment ban (2026-09-29, ~/.config/jev/NO-EXPERIMENTS). An eval is an experiment that
+    spends TypeSafe credits through deep-recall's OWN client, so the gate lives here, at the spend path,
+    not only in the bash wrapper (auditor D427-V2-1). Fail closed: if jevlib can't be imported, refuse."""
+    import os
+    flag = os.path.expanduser("~/.config/jev/NO-EXPERIMENTS")
+    if not os.path.exists(flag):
+        return None
+    try:
+        sys.path.insert(0, os.path.expanduser("~/.local/lib/python"))
+        import jevlib
+        if jevlib.is_interactive():
+            return None
+    except Exception:
+        pass
+    return f"deeprecall eval REFUSED: jev experiments are banned outside a live session with Mike ({flag})"
+
+
 def run(path: str, limit: int | None, top: int, max_usd: float, as_json: bool) -> int:
+    ban = _experiment_ban()
+    if ban:
+        print(ban, file=sys.stderr)
+        return 3
     qs = _read(path)[:limit] if limit else _read(path)
     cfg = load()
     rc = Recaller(cfg)
