@@ -63,6 +63,9 @@ def cmd_init(a) -> int:
     return 0
 
 
+EX_TEMPFAIL = 75
+
+
 def cmd_index(a) -> int:
     cfg = load()
     if not cfg.roots:
@@ -70,8 +73,10 @@ def cmd_index(a) -> int:
         return 2
     r = idx.build(cfg, full=a.full, quiet=a.quiet)
     if r.get("skipped"):
+        # 75 = EX_TEMPFAIL: a lock-skip did no work, so it must not exit like a successful run
+        # (a scheduler would record a green run that indexed nothing; auditor D425-V2-1).
         print(f"index: {r['skipped']}", file=sys.stderr)
-        return 0
+        return EX_TEMPFAIL
     if not a.quiet or r["indexed"] or r["removed"]:
         print(f"indexed {r['indexed']} changed file(s), removed {r['removed']}, total {r['total']} ({r['secs']}s) -> {cfg.index}")
     return 0

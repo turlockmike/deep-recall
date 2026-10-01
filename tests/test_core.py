@@ -236,6 +236,18 @@ def test_concurrent_build_is_skipped(cfg):
     assert idx.build(cfg, quiet=True).get("skipped") is None
 
 
+def test_cli_index_lock_skip_exits_tempfail(cfg, monkeypatch, capsys):
+    """A lock-skipped `deeprecall index` did no work, so it must not exit 0 like a real run."""
+    import fcntl
+    from deeprecall import cli
+    monkeypatch.setenv("DEEPRECALL_CONFIG", str(cfg.source))
+    with open(str(cfg.index) + ".lock", "w") as held:
+        fcntl.flock(held, fcntl.LOCK_EX)
+        assert cli.main(["index", "--quiet"]) == 75
+    assert "locked" in capsys.readouterr().err
+    assert cli.main(["index", "--quiet"]) == 0
+
+
 class KindFake(KeywordFake):
     """KeywordFake that classifies every question as `kind`, and scores `marker_for` kinds by another marker."""
 
