@@ -379,3 +379,27 @@ def test_file_root_is_indexed_and_resolved(tmp_path):
     assert idx.resolve(cfg, "notes/a.md") == notes / "a.md"
     one = load(c) ; one.roots = [single]
     assert {d for d, _a, _r in idx.iter_files(one)} == {"journal.md"} and idx.resolve(one, "journal.md") == single
+
+
+def test_html_extension_indexed_as_text(tmp_path):
+    from deeprecall.markdown import html_to_text, read_doc
+    notes = tmp_path / "notes"; notes.mkdir()
+    (notes / "a.md").write_text("# A\nalpha\n")
+    (notes / "p.html").write_text("<html><head><title>Keel proposal</title><style>.x{color:red}</style></head><body>"
+                                  "<h2>Decision 1</h2><p>Mike picks the fact table.</p>"
+                                  "<script>var secretjs = 1;</script></body></html>")
+    (notes / "skip.txt").write_text("not indexed")
+    c = tmp_path / "config.toml"
+    c.write_text(f'roots = ["{notes}"]\nindex = "{tmp_path / "state" / "index.db"}"\nextensions = ["md", ".html"]\n'
+                 '[embedding]\nmodel = "hash:64"\n[reranker]\nbackend = "none"\n')
+    cfg = load(c)
+    assert cfg.extensions == [".md", ".html"]
+    assert {d for d, _a, _r in idx.iter_files(cfg)} == {"a.md", "p.html"}
+    t = read_doc(notes / "p.html")
+    assert "## Decision 1" in t and "fact table" in t and "secretjs" not in t and "color:red" not in t
+    assert t.startswith("# Keel proposal")
+    idx.build(cfg, quiet=True)
+    assert "p.html" in [r[0] for r in search(cfg, "fact table decision")]
+    default = load(c); default.extensions = [".md"]
+    assert {d for d, _a, _r in idx.iter_files(default)} == {"a.md"}
+    assert html_to_text("<p>unclosed <b>tag") .startswith("unclosed")

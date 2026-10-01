@@ -92,6 +92,7 @@ class Config:
     roots: list[Path]
     index: Path
     exclude: list[str] = field(default_factory=lambda: [".git/**", "node_modules/**", "**/.obsidian/**"])
+    extensions: list[str] = field(default_factory=lambda: [".md"])  # file types indexed; .html/.htm are converted to text
     embed_model: str = "BAAI/bge-small-en-v1.5"
     chunk_words: int = 350
     rrf_k: int = 60
@@ -137,6 +138,7 @@ def load(path: Path | None = None, **overrides) -> Config:
         roots=[_expand(r) for r in roots],
         index=_expand(os.environ.get("DEEPRECALL_INDEX") or raw.get("index") or base / "index.db"),
         exclude=raw.get("exclude", Config.__dataclass_fields__["exclude"].default_factory()),
+        extensions=[e if e.startswith(".") else "." + e for e in _str_list(raw.get("extensions", [".md"]))],
         embed_model=emb.get("model", Config.embed_model),
         chunk_words=int(emb.get("chunk_words", Config.chunk_words)),
         rrf_k=int(srch.get("rrf_k", Config.rrf_k)),

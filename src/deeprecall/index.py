@@ -17,7 +17,7 @@ import sqlite_vec
 
 from .config import Config
 from .embed import get_embedder, mean, normalize
-from .markdown import split_frontmatter, split_units, title_of
+from .markdown import read_doc, split_frontmatter, split_units, title_of
 
 
 def connect(cfg: Config, dim: int | None = None) -> sqlite3.Connection:
@@ -61,15 +61,16 @@ def blob(v: list[float]) -> bytes:
 def iter_files(cfg: Config):
     """Yield (display_path, absolute_path, root) for every Markdown file under the roots."""
     multi = len(cfg.roots) > 1
+    exts = {e.lower() for e in cfg.extensions}
     for root in cfg.roots:
         if root.is_file():  # a root may be a single Markdown file (e.g. ~/journal.md)
-            if root.suffix == ".md":
+            if root.suffix.lower() in exts:
                 yield root.name, root, root
             continue
         if not root.is_dir():
             print(f"deeprecall: root not found: {root}", file=sys.stderr)
             continue
-        for p in sorted(root.rglob("*.md")):
+        for p in sorted(q for q in root.rglob("*") if q.suffix.lower() in exts and q.is_file()):
             rel = p.relative_to(root).as_posix()
             if any(fnmatch.fnmatch(rel, pat) for pat in cfg.exclude):
                 continue
@@ -124,7 +125,7 @@ def _build(cfg: Config, full: bool, quiet: bool) -> dict:
     for disp, absp, root in iter_files(cfg):
         seen.add(disp)
         try:
-            text = absp.read_text(errors="replace")
+            text = read_doc(absp)
         except OSError:
             continue
         h = hashlib.sha256(text.encode()).hexdigest()[:16]

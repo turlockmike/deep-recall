@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import re
+from html.parser import HTMLParser
+from pathlib import Path
 
 import yaml
 
@@ -86,3 +88,64 @@ def windows(body: str, words: int = 600, max_windows: int = 24) -> list[tuple[st
     if cur:
         out.append((head, "\n\n".join(cur)))
     return out or [("", body[:20000])]
+
+
+class _HTMLText(HTMLParser):
+    """HTML -> Markdown-ish text: <h1>-<h6> become '#' headings (so section splitting works),
+    block tags become line breaks, <script>/<style>/<svg>/<template> are dropped."""
+    SKIP = {"script", "style", "svg", "template", "noscript", "head"}
+    BLOCK = {"p", "div", "section", "article", "li", "tr", "br", "table", "ul", "ol", "pre", "blockquote", "header", "footer", "main", "nav", "aside"}
+
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.out: list[str] = []
+        self.skip = 0
+        self.title = ""
+        self._in_title = False
+
+    def handle_starttag(self, tag, attrs):
+        if tag == "title":
+            self._in_title = True
+        if tag in self.SKIP:
+            self.skip += 1
+        elif not self.skip and re.fullmatch(r"h[1-6]", tag):
+            self.out.append("\n\n" + "#" * int(tag[1]) + " ")
+        elif not self.skip and tag in self.BLOCK:
+            self.out.append("\n")
+
+    def handle_endtag(self, tag):
+        if tag == "title":
+            self._in_title = False
+        if tag in self.SKIP:
+            self.skip = max(0, self.skip - 1)
+        elif not self.skip and (re.fullmatch(r"h[1-6]", tag) or tag in self.BLOCK):
+            self.out.append("\n")
+
+    def handle_data(self, data):
+        if self._in_title:
+            self.title += data
+        if not self.skip:
+            self.out.append(data)
+
+
+def html_to_text(html: str) -> str:
+    p = _HTMLText()
+    try:
+        p.feed(html)
+        p.close()
+    except Exception:  # malformed HTML: index whatever was extracted so far
+        pass
+    body = re.sub(r"[ \t]+", " ", "".join(p.out))
+    body = re.sub(r"\n\s*\n\s*\n+", "\n\n", body).strip()
+    title = " ".join(p.title.split())
+    if title and not body.lstrip().startswith("# "):
+        body = f"# {title}\n\n{body}"
+    return body
+
+
+def read_doc(path: Path) -> str:
+    """Read an indexable file as Markdown text (HTML is converted; everything else is read as-is)."""
+    text = path.read_text(errors="replace")
+    if path.suffix.lower() in (".html", ".htm"):
+        return html_to_text(text)
+    return text

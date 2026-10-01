@@ -23,7 +23,7 @@ from dataclasses import dataclass, field
 from . import index as idx
 from .budget import Budget
 from .config import Config
-from .markdown import split_frontmatter, windows
+from .markdown import read_doc, split_frontmatter, windows
 from .rare import RareIndex
 from .rerankers.base import Passage, Reranker, load
 from .search import search
@@ -130,7 +130,7 @@ class Recaller:
         wins: list[Passage] = []
         for p in todo:
             try:
-                _fm, body = split_frontmatter(idx.resolve(self.cfg, p).read_text(errors="replace"))
+                _fm, body = split_frontmatter(read_doc(idx.resolve(self.cfg, p)))
             except OSError:
                 cache[p] = (0.0, "")
                 continue

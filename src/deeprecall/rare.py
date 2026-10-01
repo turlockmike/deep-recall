@@ -11,6 +11,8 @@ import shutil
 import subprocess
 from pathlib import Path
 
+from .markdown import read_doc
+
 STOP = {"What", "Which", "When", "Where", "Why", "How", "Who", "Does", "Did", "Is", "Was", "The", "In", "On",
         "For", "After", "Before", "At", "A", "An", "January", "February", "March", "April", "May", "June",
         "July", "August", "September", "October", "November", "December", "I", "My", "We", "Our"}
@@ -41,6 +43,7 @@ class RareIndex:
         self.by_abs = {str(a.resolve()): d for d, a in files}
         self.files = files
         self.roots = [str(r) for r in roots]
+        self.globs = [x for suf in sorted({a.suffix.lower() for _d, a in files} or {".md"}) for x in ("--glob", f"*{suf}")]
         self.rg = shutil.which("rg")
         self._text: dict[str, str] | None = None
         self._cache: dict[str, tuple[str, ...]] = {}
@@ -49,13 +52,13 @@ class RareIndex:
         if term in self._cache:
             return self._cache[term]
         if self.rg:
-            r = subprocess.run([self.rg, "-l", "-i", "-F", term, "--glob", "*.md", *self.roots],
+            r = subprocess.run([self.rg, "-l", "-i", "-F", term, *self.globs, *self.roots],
                                capture_output=True, text=True, timeout=60)
             hits = tuple(self.by_abs[k] for k in (str(Path(p).resolve()) for p in r.stdout.splitlines())
                          if k in self.by_abs)
         else:
             if self._text is None:
-                self._text = {d: a.read_text(errors="replace").lower() for d, a in self.files}
+                self._text = {d: read_doc(a).lower() for d, a in self.files}
             t = term.lower()
             hits = tuple(d for d, txt in self._text.items() if t in txt)
         self._cache[term] = hits
