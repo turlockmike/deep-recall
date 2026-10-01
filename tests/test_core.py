@@ -362,3 +362,20 @@ def test_jev_classify_survives_a_reply_without_answers(monkeypatch):
     monkeypatch.setenv("TYPESAFE_API_KEY", "k")
     rr = jev.JevReranker()
     assert rr.classify("How many?") is None and rr.last_tokens == 77
+
+
+def test_file_root_is_indexed_and_resolved(tmp_path):
+    notes = tmp_path / "notes"; notes.mkdir()
+    (notes / "a.md").write_text("# A\nalpha note\n")
+    single = tmp_path / "journal.md"; single.write_text("# Journal\nMike switched the electric plan\n")
+    (tmp_path / "data.txt").write_text("not markdown")
+    c = tmp_path / "config.toml"
+    c.write_text(f'roots = ["{notes}", "{single}", "{tmp_path / "data.txt"}"]\nindex = "{tmp_path / "state" / "index.db"}"\n'
+                 '[embedding]\nmodel = "hash"\n')
+    cfg = load(c)
+    disps = {d for d, _a, _r in idx.iter_files(cfg)}
+    assert disps == {"notes/a.md", "journal.md"}
+    assert idx.resolve(cfg, "journal.md") == single
+    assert idx.resolve(cfg, "notes/a.md") == notes / "a.md"
+    one = load(c) ; one.roots = [single]
+    assert {d for d, _a, _r in idx.iter_files(one)} == {"journal.md"} and idx.resolve(one, "journal.md") == single

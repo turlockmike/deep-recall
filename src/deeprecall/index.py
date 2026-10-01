@@ -62,6 +62,10 @@ def iter_files(cfg: Config):
     """Yield (display_path, absolute_path, root) for every Markdown file under the roots."""
     multi = len(cfg.roots) > 1
     for root in cfg.roots:
+        if root.is_file():  # a root may be a single Markdown file (e.g. ~/journal.md)
+            if root.suffix == ".md":
+                yield root.name, root, root
+            continue
         if not root.is_dir():
             print(f"deeprecall: root not found: {root}", file=sys.stderr)
             continue
@@ -74,6 +78,9 @@ def iter_files(cfg: Config):
 
 def resolve(cfg: Config, display_path: str) -> Path:
     """Map an index path back to the file on disk."""
+    for r in cfg.roots:
+        if r.is_file() and r.name == display_path:
+            return r
     if len(cfg.roots) == 1:
         return cfg.roots[0] / display_path
     head, _, rest = display_path.partition("/")
