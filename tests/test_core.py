@@ -447,3 +447,13 @@ def test_html_extension_indexed_as_text(tmp_path):
     default = load(c); default.extensions = [".md"]
     assert {d for d, _a, _r in idx.iter_files(default)} == {"a.md"}
     assert html_to_text("<p>unclosed <b>tag") .startswith("unclosed")
+
+
+def test_eval_cap_zero_refuses_live_cap_zero_unlimited(tmp_path):
+    # Mike 2026-10-01 20:03: eval_daily_cap_usd = 0 must REFUSE evals (not mean "unlimited").
+    from deeprecall.budget import Budget
+    from deeprecall.rerankers.base import BudgetExceeded
+    import pytest
+    with pytest.raises(BudgetExceeded):
+        Budget(tmp_path / "l.jsonl", 0.08, 0.0, "eval").check(0.001)
+    Budget(tmp_path / "l.jsonl", 0.08, 0.0, "live").check(0.001)

@@ -6,7 +6,8 @@ CALLER SPLIT (2026-10-01): one eval spent $1.02 of the shared rolling-24h cap an
 rows only (eval -> eval_daily_cap_usd), so an eval can never starve live rerank. Legacy rows with no caller
 count as live (conservative: never under-count the live cap). Before scoring, the
 pipeline estimates the batch cost and refuses (BudgetExceeded -> fall back to first-stage order)
-if it would cross either cap. Caps of 0 disable.
+if it would cross either cap. A live cap of 0 disables the live cap; an EVAL cap of 0 REFUSES every eval call
+(Mike 2026-10-01 20:03: "no more big jev tests, just use it for deeprecall calls only" -> eval_daily_cap_usd = 0).
 """
 from __future__ import annotations
 
@@ -44,6 +45,8 @@ class Budget:
         return tot
 
     def check(self, est_usd: float) -> None:
+        if self.caller == "eval" and not self.daily:
+            raise BudgetExceeded("eval jev spend is off (eval_daily_cap_usd = 0; Mike 2026-10-01 20:03, deeprecall live rerank only)")
         if est_usd <= 0:
             return
         if self.per_query and self.query_usd + est_usd > self.per_query:

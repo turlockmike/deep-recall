@@ -45,6 +45,9 @@ def run(path: str, limit: int | None, top: int, max_usd: float, as_json: bool) -
         return 3
     qs = _read(path)[:limit] if limit else _read(path)
     cfg = load()
+    if not cfg.eval_daily_cap_usd:   # Mike 2026-10-01 20:03: jev = deeprecall live rerank only; no evals
+        print("deeprecall eval REFUSED: eval_daily_cap_usd = 0 (Mike 2026-10-01: jev for live rerank only, no jev evals)", file=sys.stderr)
+        return 3
     rc = Recaller(cfg)
     rc.caller = "eval"  # own rolling cap; never charged against live recall
     rows, spent = [], 0.0

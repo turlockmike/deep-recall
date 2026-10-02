@@ -111,7 +111,7 @@ class Config:
     reranker: dict = field(default_factory=lambda: {"backend": "cross-encoder"})
     max_usd_per_query: float = 0.05
     daily_cap_usd: float = 1.0
-    eval_daily_cap_usd: float = 1.0
+    eval_daily_cap_usd: float = 0.0   # Mike 2026-10-01 20:03: 0 = evals refused
     source: Path | None = None
 
     @property
