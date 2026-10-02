@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import shutil
 import sys
+import time
 from pathlib import Path
 
 import pytest
@@ -162,6 +163,37 @@ def test_budget_caps(tmp_path):
     b2 = Budget(tmp_path / "l.jsonl", 0.05, 0.02)
     with pytest.raises(BudgetExceeded):
         b2.check(0.01)
+
+
+def test_eval_spend_cannot_starve_live(tmp_path):
+    """2026-10-01: one eval spent $1.02 of the shared cap and live recall ran unreranked ~24h."""
+    led = tmp_path / "l.jsonl"
+    ev = Budget(led, 5.0, 2.0, caller="eval")
+    for _ in range(3):
+        ev.record("jev", 1000, 0.50)  # eval-tagged ledger at $1.50
+    live = Budget(led, 0.05, 1.0)
+    live.check(0.04)  # live cap $1.00 untouched by $1.50 of eval rows
+    assert live.day_usd() == 0.0 and ev.day_usd() == 1.5
+    with pytest.raises(BudgetExceeded):
+        Budget(led, 5.0, 1.0, caller="eval").check(0.01)  # eval still hits ITS OWN cap
+    with open(led, "a") as f:  # legacy untagged rows count as LIVE (never under-count the live cap)
+        f.write(json.dumps({"ts": time.time(), "backend": "jev", "tokens": 1, "usd": 0.99}) + "\n")
+    with pytest.raises(BudgetExceeded):
+        live.check(0.04)
+    assert json.loads(led.read_text().splitlines()[0])["caller"] == "eval"
+
+
+def test_eval_recaller_tags_eval(cfg):
+    cfg.reranker = {"backend": "fake"}
+    rc = Recaller(cfg, KeywordFake())
+    rc.caller = "eval"
+    cfg.eval_daily_cap_usd, cfg.daily_cap_usd = 1e-9, 100.0
+    r = rc.recall("Which electricity plan did we switch to?")
+    assert r.mode.startswith("first-stage") and "eval cap" in r.note, (r.mode, r.note)  # eval hits ITS cap
+    live = Recaller(cfg, KeywordFake()).recall("Which electricity plan did we switch to?")
+    assert live.mode.startswith("rerank"), (live.mode, live.note)  # live unaffected by the tiny eval cap
+    rows = [json.loads(l) for l in cfg.ledger.read_text().splitlines()]
+    assert rows and {r["caller"] for r in rows} == {"live"}
 
 
 def test_budget_refusal_falls_back(cfg):

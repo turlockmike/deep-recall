@@ -92,6 +92,7 @@ class Recaller:
     def __init__(self, cfg: Config, reranker: Reranker | None = None):
         self.cfg = cfg
         self._reranker = reranker
+        self.caller = "live"  # eval.run sets "eval": its spend is capped separately (budget.py CALLER SPLIT)
         self._rare = None
 
     @property
@@ -163,7 +164,8 @@ class Recaller:
             res = Result(q, [Hit(p, None) for p in pool[:top]], mode, len(pool), secs=round(time.time() - t0, 2))
             self._log(res)
             return res
-        budget = Budget(cfg.ledger, cfg.max_usd_per_query, cfg.daily_cap_usd)
+        budget = Budget(cfg.ledger, cfg.max_usd_per_query,
+                        cfg.eval_daily_cap_usd if self.caller == "eval" else cfg.daily_cap_usd, self.caller)
         cache: dict[str, tuple[float, str]] = {}
         passages: dict[str, str] = {}
         res = Result(q, [], "rerank:" + str(cfg.reranker.get("backend")), len(pool))

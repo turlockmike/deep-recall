@@ -1,6 +1,10 @@
 """Spend meter: an append-only JSON-lines ledger + per-query and rolling-24h caps.
 
-Every paid reranker call batch is recorded as {ts, backend, tokens, usd}. Before scoring, the
+Every paid reranker call batch is recorded as {ts, pid, backend, tokens, usd, caller}.
+CALLER SPLIT (2026-10-01): one eval spent $1.02 of the shared rolling-24h cap and live recall ran unreranked
+~24h (127/251 recalls first-stage). Rows now carry caller="live"|"eval"; each caller is capped against ITS OWN
+rows only (eval -> eval_daily_cap_usd), so an eval can never starve live rerank. Legacy rows with no caller
+count as live (conservative: never under-count the live cap). Before scoring, the
 pipeline estimates the batch cost and refuses (BudgetExceeded -> fall back to first-stage order)
 if it would cross either cap. Caps of 0 disable.
 """
@@ -14,9 +18,14 @@ from pathlib import Path
 from .rerankers.base import BudgetExceeded
 
 
+def caller_of(row: dict) -> str:
+    return "eval" if row.get("caller") == "eval" else "live"
+
+
 class Budget:
-    def __init__(self, ledger: Path, max_usd_per_query: float, daily_cap_usd: float):
+    def __init__(self, ledger: Path, max_usd_per_query: float, daily_cap_usd: float, caller: str = "live"):
         self.ledger, self.per_query, self.daily = ledger, max_usd_per_query, daily_cap_usd
+        self.caller = caller
         self.query_usd = 0.0
 
     def day_usd(self) -> float:
@@ -28,7 +37,7 @@ class Budget:
                         r = json.loads(ln)
                     except ValueError:
                         continue
-                    if r.get("ts", 0) >= since:
+                    if r.get("ts", 0) >= since and caller_of(r) == self.caller:
                         tot += r.get("usd", 0.0)
         except FileNotFoundError:
             pass
@@ -40,7 +49,7 @@ class Budget:
         if self.per_query and self.query_usd + est_usd > self.per_query:
             raise BudgetExceeded(f"query would cost ~${self.query_usd + est_usd:.4f} > per-query cap ${self.per_query:.2f}")
         if self.daily and self.day_usd() + est_usd > self.daily:
-            raise BudgetExceeded(f"rolling-24h cap ${self.daily:.2f} reached (ledger {self.ledger})")
+            raise BudgetExceeded(f"rolling-24h {self.caller} cap ${self.daily:.2f} reached (ledger {self.ledger})")
 
     def record(self, backend: str, tokens: int, usd: float) -> None:
         self.query_usd += usd
@@ -50,7 +59,7 @@ class Budget:
             self.ledger.parent.mkdir(parents=True, exist_ok=True)
             with open(self.ledger, "a") as f:
                 f.write(json.dumps({"ts": round(time.time(), 3), "pid": os.getpid(), "backend": backend,
-                                    "tokens": tokens, "usd": round(usd, 8)}) + "\n")
+                                    "tokens": tokens, "usd": round(usd, 8), "caller": self.caller}) + "\n")
         except OSError:
             pass
 
@@ -63,4 +72,5 @@ def summary(ledger: Path) -> dict:
         pass
     day = [r for r in rows if r.get("ts", 0) >= since]
     return {"ledger": str(ledger), "calls_24h": len(day), "usd_24h": round(sum(r["usd"] for r in day), 4),
-            "tokens_24h": sum(r.get("tokens", 0) for r in day), "usd_all_time": round(sum(r["usd"] for r in rows), 4)}
+            "tokens_24h": sum(r.get("tokens", 0) for r in day), "usd_all_time": round(sum(r["usd"] for r in rows), 4),
+            "usd_24h_by_caller": {c: round(sum(r["usd"] for r in day if caller_of(r) == c), 4) for c in ("live", "eval")}}

@@ -61,7 +61,8 @@ backend = "cross-encoder"
 
 [budget]
 max_usd_per_query = 0.05
-daily_cap_usd = 1.00               # rolling 24h, across all processes; 0 disables
+daily_cap_usd = 1.00               # rolling 24h, LIVE recall rows only, across all processes; 0 disables
+eval_daily_cap_usd = 1.00          # rolling 24h, `deeprecall eval` rows only (own cap: an eval cannot starve live)
 '''
 
 
@@ -110,6 +111,7 @@ class Config:
     reranker: dict = field(default_factory=lambda: {"backend": "cross-encoder"})
     max_usd_per_query: float = 0.05
     daily_cap_usd: float = 1.0
+    eval_daily_cap_usd: float = 1.0
     source: Path | None = None
 
     @property
@@ -156,6 +158,7 @@ def load(path: Path | None = None, **overrides) -> Config:
         reranker=dict(raw.get("reranker", {"backend": "cross-encoder"})),
         max_usd_per_query=float(bud.get("max_usd_per_query", Config.max_usd_per_query)),
         daily_cap_usd=float(bud.get("daily_cap_usd", Config.daily_cap_usd)),
+        eval_daily_cap_usd=float(bud.get("eval_daily_cap_usd", Config.eval_daily_cap_usd)),
         source=path,
     )
     if os.environ.get("DEEPRECALL_RERANKER"):

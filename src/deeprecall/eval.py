@@ -46,6 +46,7 @@ def run(path: str, limit: int | None, top: int, max_usd: float, as_json: bool) -
     qs = _read(path)[:limit] if limit else _read(path)
     cfg = load()
     rc = Recaller(cfg)
+    rc.caller = "eval"  # own rolling cap; never charged against live recall
     rows, spent = [], 0.0
     for i, d in enumerate(qs, 1):
         gold = set(d["gold"])
