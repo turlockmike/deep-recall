@@ -457,3 +457,22 @@ def test_eval_cap_zero_refuses_live_cap_zero_unlimited(tmp_path):
     with pytest.raises(BudgetExceeded):
         Budget(tmp_path / "l.jsonl", 0.08, 0.0, "eval").check(0.001)
     Budget(tmp_path / "l.jsonl", 0.08, 0.0, "live").check(0.001)
+
+
+def test_budget_widen_reserve(tmp_path):
+    """2026-10-03: widens ate the $0.60 live cap on 10-02 and later recalls ran unreranked.
+    A widen (ceiling < 1) must stop at (1 - reserve) of the cap; a base rerank may still use the reserve."""
+    import json, time
+    from deeprecall.budget import Budget
+    from deeprecall.rerankers.base import BudgetExceeded
+    led = tmp_path / "spend.jsonl"
+    led.write_text(json.dumps({"ts": time.time(), "usd": 0.38, "caller": "live"}) + "\n")
+    b = Budget(led, 0.08, 0.60, "live")
+    b.ceiling = 0.65                        # widen pass: 0.38 + 0.05 > 0.39 -> refused
+    try:
+        b.check(0.05)
+        assert False, "widen should hit the reserve"
+    except BudgetExceeded as e:
+        assert "widen reserve" in str(e)
+    b.ceiling = 1.0                         # base pass: 0.38 + 0.01 <= 0.60 -> allowed
+    b.check(0.01)

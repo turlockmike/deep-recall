@@ -28,6 +28,7 @@ class Budget:
         self.ledger, self.per_query, self.daily = ledger, max_usd_per_query, daily_cap_usd
         self.caller = caller
         self.query_usd = 0.0
+        self.ceiling = 1.0   # fraction of the daily cap this call may fill (widen passes run < 1.0; see recall.py)
 
     def day_usd(self) -> float:
         since, tot = time.time() - 86400, 0.0
@@ -51,6 +52,9 @@ class Budget:
             return
         if self.per_query and self.query_usd + est_usd > self.per_query:
             raise BudgetExceeded(f"query would cost ~${self.query_usd + est_usd:.4f} > per-query cap ${self.per_query:.2f}")
+        if self.daily and self.ceiling < 1.0 and self.day_usd() + est_usd > self.daily * self.ceiling:
+            raise BudgetExceeded(f"widen reserve: rolling-24h {self.caller} spend would pass "
+                                 f"{self.ceiling:.0%} of ${self.daily:.2f}; rest kept for base reranks")
         if self.daily and self.day_usd() + est_usd > self.daily:
             raise BudgetExceeded(f"rolling-24h {self.caller} cap ${self.daily:.2f} reached (ledger {self.ledger})")
 

@@ -183,11 +183,17 @@ class Recaller:
                 wide = list(dict.fromkeys(pool + self.first_stage(q, cfg.widen_k)))
                 if len(wide) > len(pool):
                     try:
+                        # WIDEN RESERVE (2026-10-03): 9 widens (~$0.05 each) ate ~80% of the $0.60 live cap on
+                        # 10-02 and every later recall that day ran unreranked. A widen may only fill the cap up
+                        # to (1 - widen_reserve_frac); the rest stays for base reranks (~$0.005-0.015 each).
+                        budget.ceiling = 1.0 - cfg.widen_reserve_frac
                         res.tokens += self._score_files(q, wide, cache, passages, budget, rr)
                         ranked = sorted(wide, key=lambda p: (-cache[p][0], wide.index(p)))
                         res.widened, res.pool = True, len(wide)
                     except Exception as e:  # keep the first pass result
                         res.note = f"widen skipped: {e}"
+                    finally:
+                        budget.ceiling = 1.0
             res.hits = [Hit(p, cache[p][0], cache[p][1], passages.get(p, "") if i == 0 else "")
                         for i, p in enumerate(ranked[:top])]
             res.extra["widen_at"] = widen_at
