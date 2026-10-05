@@ -72,7 +72,7 @@ class JevReranker(Reranker):
                  window_words: int | None = None, kind_prompts: dict | None = None,
                  fallback_base_url: str | None = None, fallback_model: str = "jev-latest",
                  fallback_usd_per_mtok: float = 0.042, fallback_workers: int = 32,
-                 primary_timeout: float = 15, **_):
+                 primary_timeout: float = 15, primary_retries: int = 1, **_):
         """With fallback_base_url set, base_url is a local jev-compatible server (e.g. a tower running
         clef-flash). If it is unreachable or errors at the transport level, this reranker (and every
         for_kind() copy, which share _route) switches to the fallback for the rest of the process."""
@@ -83,6 +83,9 @@ class JevReranker(Reranker):
         # 2026-10-04: a busy tower (bulk job queued ahead) held one recall for 359s at timeout=60 x retries;
         # one 15s try on the primary, then sticky fallback.
         self.primary_timeout = float(primary_timeout)
+        # A cloud primary (TypeSafe) gets a few tries: a lone connection reset must not push a recall onto
+        # the slow tower fallback (2026-10-04 23:40: one reset -> 102s recall).
+        self.primary_retries = int(primary_retries)
         self._route = {"url": base_url.rstrip("/") + "/systemone", "model": model,
                        "usd_per_token": usd_per_mtok / 1e6, "workers": workers, "fell_back": None}
         self._fallback = None
@@ -120,7 +123,7 @@ class JevReranker(Reranker):
             return post_json(self.url, {"state": state, "model": self.model, "questions": questions},
                              {"Authorization": "Bearer " + self.key} if self.key else {},
                              timeout=self.primary_timeout if local else 60,
-                             retries=(1 if primary else 2) if local else 4)
+                             retries=(self.primary_retries if primary else 2) if local else 4)
         except RerankerError as e:
             transport = not str(e).startswith("HTTP 4")
             if primary and transport and self._fall_back(str(e)[:120]):
