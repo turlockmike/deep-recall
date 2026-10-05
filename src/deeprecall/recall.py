@@ -14,6 +14,7 @@ Any reranker failure (budget, network, auth) falls back to first-stage order.
 from __future__ import annotations
 
 import json
+import os
 import math
 import re
 import time
@@ -218,6 +219,9 @@ class Recaller:
                                     "top": [[h.path, h.score] for h in r.hits[:3]], "pool": r.pool,
                                     "widened": r.widened, "usd": r.usd, "secs": r.secs, "note": r.note, "kind": r.kind,
                                     "first_stage_top3": r.extra.get("first_stage_top3"),
-                                    "widen_at": r.extra.get("widen_at")}) + "\n")
+                                    "widen_at": r.extra.get("widen_at"),
+                                    # worker/session let heat readers (mvm sweep) drop ritual + bulk traffic
+                                    "worker": os.environ.get("CLAUDE_LOOP_WORKER_TYPE") or os.environ.get("WORKER_TYPE"),
+                                    "session_id": os.environ.get("CLAUDE_CODE_SESSION_ID")}) + "\n")
         except OSError:
             pass
