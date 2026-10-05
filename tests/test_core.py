@@ -90,6 +90,20 @@ def test_rrf():
     assert fused["b"] > fused["a"] > fused["c"]
 
 
+@pytest.mark.xfail(strict=True, reason="code default keyword_weight=0.5 buries keyword-only hits; "
+                   "live config runs 1.0 since 2026-10-05. Flip config.py L42+L100 to 1.0 and drop this marker.")
+def test_exact_identifier_reaches_rerank_pool():
+    """Regression (2026-10-05 fresh_canary root cause): an exact identifier
+    (commit hash, session id, name) that ranks #1 on the keyword leg but is
+    absent from the vector leg's pool must still fuse into the reranker's
+    first-stage k. At w=0.5, 0.5/61 loses to every vector top-50 score -> rank 51."""
+    from deeprecall.config import Config
+    c = Config()
+    vec = [f"v{i}" for i in range(c.vector_pool)]
+    fused = [p for p, _ in rrf([(vec, 1.0), (["exact-hit"], c.keyword_weight)], c.rrf_k)]
+    assert fused.index("exact-hit") < c.k
+
+
 def test_index_incremental(cfg):
     s = idx.stats(cfg)
     assert s["docs"] == 9 and s["sections"] > 0
