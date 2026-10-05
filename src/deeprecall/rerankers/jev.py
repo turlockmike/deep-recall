@@ -71,7 +71,8 @@ class JevReranker(Reranker):
                  workers: int = 32, prompt: str = PROMPT, widen_at: float | None = None,
                  window_words: int | None = None, kind_prompts: dict | None = None,
                  fallback_base_url: str | None = None, fallback_model: str = "jev-latest",
-                 fallback_usd_per_mtok: float = 0.042, fallback_workers: int = 32, **_):
+                 fallback_usd_per_mtok: float = 0.042, fallback_workers: int = 32,
+                 primary_timeout: float = 15, **_):
         """With fallback_base_url set, base_url is a local jev-compatible server (e.g. a tower running
         clef-flash). If it is unreachable or errors at the transport level, this reranker (and every
         for_kind() copy, which share _route) switches to the fallback for the rest of the process."""
@@ -79,6 +80,9 @@ class JevReranker(Reranker):
         if not self.key and not fallback_base_url:
             raise RerankerError(f"jev: set ${api_key_env} or api_key_file")
         self.prompt = prompt
+        # 2026-10-04: a busy tower (bulk job queued ahead) held one recall for 359s at timeout=60 x retries;
+        # one 15s try on the primary, then sticky fallback.
+        self.primary_timeout = float(primary_timeout)
         self._route = {"url": base_url.rstrip("/") + "/systemone", "model": model,
                        "usd_per_token": usd_per_mtok / 1e6, "workers": workers, "fell_back": None}
         self._fallback = None
@@ -111,7 +115,8 @@ class JevReranker(Reranker):
         primary = not self._route["fell_back"] and self._fallback is not None
         try:
             return post_json(self.url, {"state": state, "model": self.model, "questions": questions},
-                             {"Authorization": "Bearer " + self.key}, timeout=60, retries=2 if primary else 4)
+                             {"Authorization": "Bearer " + self.key},
+                             timeout=self.primary_timeout if primary else 60, retries=1 if primary else 4)
         except RerankerError as e:
             transport = not str(e).startswith("HTTP 4")
             if primary and transport and self._fall_back(str(e)[:120]):
