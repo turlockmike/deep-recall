@@ -351,7 +351,7 @@ def test_jev_classify_and_kind_prompts(monkeypatch):
     from deeprecall.rerankers import jev
     sent = []
 
-    def fake_post(url, body, headers, timeout=60):
+    def fake_post(url, body, headers, timeout=60, **_):
         sent.append(body)
         return {"answers": {"kind": {"choice": reply[0]}}, "usage": {"input_tokens": 123}}
     monkeypatch.setattr(jev, "post_json", fake_post)
@@ -476,3 +476,32 @@ def test_budget_widen_reserve(tmp_path):
         assert "widen reserve" in str(e)
     b.ceiling = 1.0                         # base pass: 0.38 + 0.01 <= 0.60 -> allowed
     b.check(0.01)
+
+
+def test_jev_local_primary_falls_back_sticky(monkeypatch):
+    """base_url = local jev-compatible server ($0); transport failure -> fallback for every copy, priced."""
+    from deeprecall.rerankers import jev
+    from deeprecall.rerankers.base import Passage, RerankerError
+    calls = []
+
+    def fake_post(url, body, headers, timeout=60, **_):
+        calls.append((url, body["model"]))
+        if url.startswith("http://tower"):
+            raise RerankerError("<urlopen error timed out>")
+        return {"answers": {"q": {"type": "noul", "noul": 0.8}}, "usage": {"input_tokens": 10}}
+    monkeypatch.setattr(jev, "post_json", fake_post)
+    monkeypatch.setattr(jev, "_reachable", lambda url, timeout=1.5: True)
+    monkeypatch.setenv("TYPESAFE_API_KEY", "k")
+    rr = jev.JevReranker(base_url="http://tower:1/v1", model="clef-flash:latest", usd_per_mtok=0, workers=4,
+                         fallback_base_url="https://api.typesafe.ai/v1")
+    assert rr.usd_per_token == 0 and rr.workers == 4
+    tuned = rr.for_kind("preference")
+    assert tuned.score("q?", [Passage("a.md", "x", "")]) == [0.8]
+    assert calls == [("http://tower:1/v1/systemone", "clef-flash:latest"),
+                     ("https://api.typesafe.ai/v1/systemone", "jev-latest")]
+    assert rr._route["fell_back"] and rr.usd_per_token == 0.042 / 1e6 and rr.workers == 32   # shared by copies
+    rr.score("q?", [Passage("b.md", "y", "")])
+    assert calls[-1][0].startswith("https://api.typesafe.ai")                               # no tower retry
+
+    monkeypatch.setattr(jev, "_reachable", lambda url, timeout=1.5: False)                  # down at startup
+    assert jev.JevReranker(base_url="http://tower:1/v1", fallback_base_url="https://x/v1").url == "https://x/v1/systemone"

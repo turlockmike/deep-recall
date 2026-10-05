@@ -201,6 +201,10 @@ class Recaller:
             res.mode = "first-stage (reranker unavailable)"
             res.note = f"{type(e).__name__}: {str(e)[:200]}"
             res.hits = [Hit(p, None) for p in pool[:top]]
+        fell = getattr(self.reranker, "_route", {}).get("fell_back")
+        if fell:
+            res.mode += " (fallback)"
+            res.note = (res.note + "; " if res.note else "") + f"primary reranker down, used fallback: {fell}"
         res.usd = round(budget.query_usd, 6)
         res.secs = round(time.time() - t0, 2)
         self._log(res)
