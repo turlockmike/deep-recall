@@ -112,11 +112,15 @@ class JevReranker(Reranker):
         return True
 
     def _ask(self, state: dict, questions: dict) -> dict:
-        primary = not self._route["fell_back"] and self._fallback is not None
+        # Tower-only (no fallback, Mike 2026-10-04 "only use clef flash") is also a primary route: short
+        # timeout, 2 tries, then RerankerError -> recall returns first-stage results instead of hanging.
+        local = not self._route["fell_back"] and (self._fallback is not None or self.usd_per_token == 0)
+        primary = local and self._fallback is not None
         try:
             return post_json(self.url, {"state": state, "model": self.model, "questions": questions},
-                             {"Authorization": "Bearer " + self.key},
-                             timeout=self.primary_timeout if primary else 60, retries=1 if primary else 4)
+                             {"Authorization": "Bearer " + self.key} if self.key else {},
+                             timeout=self.primary_timeout if local else 60,
+                             retries=(1 if primary else 2) if local else 4)
         except RerankerError as e:
             transport = not str(e).startswith("HTTP 4")
             if primary and transport and self._fall_back(str(e)[:120]):
