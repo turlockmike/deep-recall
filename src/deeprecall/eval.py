@@ -38,6 +38,41 @@ def _experiment_ban() -> str | None:
     return f"deeprecall eval REFUSED: jev experiments are banned outside a live session with Mike ({flag})"
 
 
+def first_stage(paths: list[str], limit: int | None, top: int, as_json: bool, depth: int = 20) -> int:
+    """First-stage-only scoring (hybrid BM25 + vector, no reranker, no LLM, $0): hit@1 / hit@top / hit@depth / MRR@depth
+    and per-query latency. Questions whose gold files are not in the index are skipped (reported as `skipped`).
+    This is the embedder A/B instrument: run it twice with two DEEPRECALL_CONFIGs (e.g. bge vs EmbeddingGemma 2 index)."""
+    import time
+    from .config import load as _load
+    from .index import connect
+    from .search import search
+    cfg = _load()
+    db = connect(cfg)
+    indexed = {r[0] for r in db.execute("SELECT path FROM docs")}
+    db.close()
+    qs = [d for p in paths for d in _read(p)]
+    qs = qs[:limit] if limit else qs
+    rows, skipped = [], 0
+    for d in qs:
+        gold = [p for p in (d.get("gold") or d.get("ev") or []) if p in indexed]
+        if not gold:
+            skipped += 1
+            continue
+        t0 = time.time()
+        got = [p for p, _ in search(cfg, d["q"], depth)]
+        secs = time.time() - t0
+        rank = next((i + 1 for i, p in enumerate(got) if p in gold), 0)
+        rows.append({"q": d["q"], "rank": rank, "secs": round(secs, 3), "gold": gold, "top": got[:3]})
+    n = len(rows)
+    lat = sorted(r["secs"] for r in rows)
+    out = {"n": n, "skipped": skipped, "index": str(cfg.index), "embedding": {"model": cfg.embed_model, **{k: v for k, v in cfg.embedding.items() if k != "model"}},
+           "hit@1": sum(r["rank"] == 1 for r in rows), f"hit@{top}": sum(0 < r["rank"] <= top for r in rows),
+           f"hit@{depth}": sum(r["rank"] > 0 for r in rows), f"mrr@{depth}": round(sum(1 / r["rank"] for r in rows if r["rank"]) / max(n, 1), 4),
+           "secs_median": lat[n // 2] if n else None, "secs_p90": lat[int(n * 0.9)] if n else None}
+    print(json.dumps({**out, "rows": rows} if as_json else out, indent=1))
+    return 0
+
+
 def run(path: str, limit: int | None, top: int, max_usd: float, as_json: bool) -> int:
     ban = _experiment_ban()
     if ban:

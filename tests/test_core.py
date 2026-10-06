@@ -542,3 +542,68 @@ def test_jev_local_primary_falls_back_sticky(monkeypatch):
 
     monkeypatch.setattr(jev, "_reachable", lambda url, timeout=1.5: False)                  # down at startup
     assert jev.JevReranker(base_url="http://tower:1/v1", fallback_base_url="https://x/v1").url == "https://x/v1/systemone"
+
+
+# --- EmbeddingGemma 2 embedder (remote-first; fake local HTTP server, no model) ---------------------------------
+def _fake_embed_server(dim_default=768):
+    import json as _json, threading
+    from http.server import BaseHTTPRequestHandler, HTTPServer
+    calls = []
+
+    class H(BaseHTTPRequestHandler):
+        def do_POST(self):
+            body = _json.loads(self.rfile.read(int(self.headers["content-length"])))
+            calls.append(body)
+            dim = body.get("dimensions", dim_default)
+            data = []
+            for i, t in enumerate(body["input"]):
+                v = [0.0] * dim
+                v[i % dim] = 2.0          # deliberately NOT unit: the client must renormalize
+                v[(i + 1) % dim] = 1.0
+                data.append({"index": i, "embedding": v})
+            out = _json.dumps({"data": data[::-1], "usage": {"prompt_tokens": 1}}).encode()   # out of order on purpose
+            self.send_response(200); self.send_header("content-type", "application/json"); self.end_headers(); self.wfile.write(out)
+
+        def log_message(self, *a):
+            pass
+
+    srv = HTTPServer(("127.0.0.1", 0), H)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    return srv, calls
+
+
+def test_eg2_prefixes_and_remote_batching():
+    from deeprecall.embed import Eg2Embedder, get_embedder
+    assert Eg2Embedder.doc_text("Title\nbody") == "title: Title | text: body"
+    assert Eg2Embedder.doc_text("T > h1 > h2\nsec") == "title: T > h1 > h2 | text: sec"
+    assert Eg2Embedder.doc_text("bare") == "title: none | text: bare"
+    assert Eg2Embedder.query_text("why?") == "task: search result | query: why?"
+    srv, calls = _fake_embed_server()
+    url = f"http://127.0.0.1:{srv.server_port}/v1/embeddings"
+    e = get_embedder("google/embeddinggemma-2", {"remote_url": url, "batch_size": 2, "dim": 768})
+    texts = [f"T{i}\n" + "x" * i for i in (5, 1, 9, 3, 7)]           # unsorted lengths
+    vs = e.embed(texts)
+    assert len(vs) == 5 and all(len(v) == 768 for v in vs)
+    for v in vs:                                                     # renormalized + order restored
+        assert abs(sum(x * x for x in v) - 1.0) < 1e-6
+    # batches are length-sorted (the server pads each batch to its longest text); calls land in completion order
+    batches = sorted((c["input"] for c in calls), key=lambda b: len(b[0]))
+    sent = [t for b in batches for t in b]
+    assert sorted(sent, key=len) == sent and len(sent) == 5 and len(calls) == 3
+    assert all(t.startswith("title: T") for t in sent)
+    q = e.embed_query(["q?"])[0]
+    assert calls[-1]["input"] == ["task: search result | query: q?"] and "dimensions" not in calls[-1]
+    e256 = get_embedder("google/embeddinggemma-2", {"remote_url": url, "dim": 256})
+    assert len(e256.embed(["a\nb"])[0]) == 256 and calls[-1]["dimensions"] == 256
+    srv.shutdown()
+
+
+def test_eg2_build_refuses_cpu_fallback_when_remote_down():
+    from deeprecall.embed import Eg2Embedder
+    e = Eg2Embedder({"remote_url": "http://127.0.0.1:9/v1/embeddings", "remote_timeout": 0.5, "query_timeout": 0.5,
+                     "local_onnx": "/nonexistent"})
+    with pytest.raises(SystemExit, match="refused"):
+        e.embed(["T\nx"])
+    with pytest.raises(FileNotFoundError):                            # queries DO fall back (model missing here)
+        e.embed_query(["q"])
+    assert e.stats["fallbacks"] == 1

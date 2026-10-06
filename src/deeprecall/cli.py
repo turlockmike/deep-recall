@@ -160,7 +160,11 @@ def cmd_report(a) -> int:
 
 
 def cmd_eval(a) -> int:
-    from .eval import run
+    from .eval import first_stage, run
+    if a.first_stage:
+        return first_stage([a.file, *a.more], a.limit, a.top, a.json, a.depth)
+    if a.more:
+        raise SystemExit("deeprecall eval: several question files only with --first-stage")
     return run(a.file, a.limit, a.top, a.max_usd, a.json)
 
 
@@ -201,6 +205,9 @@ def main(argv=None) -> int:
     p.set_defaults(fn=cmd_report)
     p = sub.add_parser("eval", help="hit@1/hit@3 on a question file")
     p.add_argument("file", help='JSON list or JSONL of {"q": "...", "gold": ["path", ...]}')
+    p.add_argument("more", nargs="*", help="more question files (--first-stage only)")
+    p.add_argument("--first-stage", action="store_true", help="score the hybrid first stage only: no reranker, no spend (embedder A/B)")
+    p.add_argument("--depth", type=int, default=20, help="--first-stage: ranks beyond this count as a miss (MRR@depth)")
     p.add_argument("--limit", type=int)
     p.add_argument("--top", type=int, default=3)
     p.add_argument("--max-usd", type=float, default=1.0, help="stop when reranker spend reaches this")

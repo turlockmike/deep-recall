@@ -34,8 +34,13 @@ roots = ["~/notes"]
 exclude = [".git/**", "node_modules/**", "**/.obsidian/**"]
 
 [embedding]
-model = "BAAI/bge-small-en-v1.5"   # any fastembed TextEmbedding model
+model = "BAAI/bge-small-en-v1.5"   # any fastembed TextEmbedding model, or "google/embeddinggemma-2" (remote-first)
 chunk_words = 350                  # file vector = mean of chunk vectors; also the section-unit size
+# EmbeddingGemma 2 (needs a LAN GPU serving OpenAI-style /v1/embeddings; local ONNX int8 answers queries if it is down):
+# remote_url = "http://192.168.1.78:8089/v1/embeddings"
+# dim = 768                        # Matryoshka cut: 768 / 512 / 256 / 128
+# local_onnx = "~/.local/share/deeprecall/eg2-onnx"   # real files (model_quantized.onnx + _data + tokenizer.json), not the HF symlink cache
+# remote_required_for_build = true # index builds never fall back to the CPU (hours, not minutes)
 
 [search]
 rrf_k = 60
@@ -96,6 +101,7 @@ class Config:
     extensions: list[str] = field(default_factory=lambda: [".md"])  # file types indexed; .html/.htm are converted to text
     embed_model: str = "BAAI/bge-small-en-v1.5"
     chunk_words: int = 350
+    embedding: dict = field(default_factory=dict)   # the raw [embedding] table (EG2: remote_url, dim, local_onnx, ...)
     rrf_k: int = 60
     keyword_weight: float = 0.5
     vector_pool: int = 50
@@ -145,6 +151,7 @@ def load(path: Path | None = None, **overrides) -> Config:
         extensions=[e if e.startswith(".") else "." + e for e in _str_list(raw.get("extensions", [".md"]))],
         embed_model=emb.get("model", Config.embed_model),
         chunk_words=int(emb.get("chunk_words", Config.chunk_words)),
+        embedding=dict(emb),
         rrf_k=int(srch.get("rrf_k", Config.rrf_k)),
         keyword_weight=float(srch.get("keyword_weight", Config.keyword_weight)),
         vector_pool=int(srch.get("vector_pool", Config.vector_pool)),
@@ -165,6 +172,8 @@ def load(path: Path | None = None, **overrides) -> Config:
         eval_daily_cap_usd=float(bud.get("eval_daily_cap_usd", Config.eval_daily_cap_usd)),
         source=path,
     )
+    if "DEEPRECALL_EMBED_REMOTE_URL" in os.environ:   # "" forces the local (ONNX int8) path: the query-side check
+        cfg.embedding = {**cfg.embedding, "remote_url": os.environ["DEEPRECALL_EMBED_REMOTE_URL"]}
     if os.environ.get("DEEPRECALL_RERANKER"):
         cfg.reranker = {**cfg.reranker, "backend": os.environ["DEEPRECALL_RERANKER"]}
     for k, v in overrides.items():

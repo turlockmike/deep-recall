@@ -114,7 +114,7 @@ def build(cfg: Config, full: bool = False, quiet: bool = False) -> dict:
 
 
 def _build(cfg: Config, full: bool, quiet: bool) -> dict:
-    emb = get_embedder(cfg.embed_model)
+    emb = get_embedder(cfg.embed_model, cfg.embedding)
     if full and cfg.index.exists():
         cfg.index.unlink()
         for suf in ("-wal", "-shm"):

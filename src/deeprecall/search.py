@@ -56,12 +56,12 @@ def rrf(lists: list[tuple[list[str], float]], k: int) -> list[tuple[str, float]]
 def search(cfg: Config, q: str, top_k: int = 10) -> list[tuple[str, float]]:
     if not cfg.index.exists():
         raise SystemExit(f"no index at {cfg.index}: run `deeprecall index` first")
-    emb = get_embedder(cfg.embed_model)
+    emb = get_embedder(cfg.embed_model, cfg.embedding)
     db = connect(cfg)
     try:
         pool = max(top_k, cfg.vector_pool)
         kw = keyword_leg(db, q, pool)
-        vec = vector_leg(db, emb.embed([q])[0], pool, max(cfg.section_pool, top_k))
+        vec = vector_leg(db, emb.embed_query([q])[0], pool, max(cfg.section_pool, top_k))
     finally:
         db.close()
     fused = rrf([(vec, 1.0), (kw, cfg.keyword_weight)], cfg.rrf_k)
