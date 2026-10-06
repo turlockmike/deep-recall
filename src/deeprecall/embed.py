@@ -83,6 +83,9 @@ class Eg2Embedder:
     def __init__(self, opts: dict):
         self.dim = int(opts.get("dim", self.FULL_DIM))
         self.remote_url = (opts.get("remote_url") or "").rstrip("/")
+        # Ollama option: point remote_url at http://HOST:11434/v1/embeddings (OpenAI-compatible) and set
+        # remote_model = "embeddinggemma-2:270m"; Ollama requires the "model" field, the desktop server ignores it.
+        self.remote_model = opts.get("remote_model") or ""
         self.remote_timeout = float(opts.get("remote_timeout", 120))
         self.query_timeout = float(opts.get("query_timeout", 3))   # LAN GPU answers in ~20 ms; fall back fast
         self.batch_size = int(opts.get("batch_size", 48))
@@ -110,6 +113,8 @@ class Eg2Embedder:
     def _post(self, texts: list[str], timeout: float) -> list[list[float]]:
         import urllib.request
         body = {"input": texts}
+        if self.remote_model:
+            body["model"] = self.remote_model
         if self.dim != self.FULL_DIM:
             body["dimensions"] = self.dim
         req = urllib.request.Request(self.remote_url, json.dumps(body).encode(), {"content-type": "application/json"})

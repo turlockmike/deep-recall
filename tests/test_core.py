@@ -595,6 +595,10 @@ def test_eg2_prefixes_and_remote_batching():
     assert calls[-1]["input"] == ["task: search result | query: q?"] and "dimensions" not in calls[-1]
     e256 = get_embedder("google/embeddinggemma-2", {"remote_url": url, "dim": 256})
     assert len(e256.embed(["a\nb"])[0]) == 256 and calls[-1]["dimensions"] == 256
+    assert "model" not in calls[-1]                                  # desktop server: no model field
+    eo = get_embedder("google/embeddinggemma-2", {"remote_url": url, "remote_model": "embeddinggemma-2:270m"})
+    eo.embed_query(["q?"])                                           # Ollama /v1/embeddings needs "model"
+    assert calls[-1]["model"] == "embeddinggemma-2:270m"
     srv.shutdown()
 
 
