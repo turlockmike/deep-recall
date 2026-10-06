@@ -112,6 +112,7 @@ class Config:
     max_usd_per_query: float = 0.05
     daily_cap_usd: float = 1.0
     widen_reserve_frac: float = 0.35  # share of daily_cap_usd a widen pass may NOT consume (kept for base reranks)
+    session_share_frac: float = 0.4   # max share of daily_cap_usd ONE session may fill (2026-10-06; 0 = off)
     eval_daily_cap_usd: float = 0.0   # Mike 2026-10-01 20:03: 0 = evals refused
     source: Path | None = None
 
@@ -160,6 +161,7 @@ def load(path: Path | None = None, **overrides) -> Config:
         max_usd_per_query=float(bud.get("max_usd_per_query", Config.max_usd_per_query)),
         daily_cap_usd=float(bud.get("daily_cap_usd", Config.daily_cap_usd)),
         widen_reserve_frac=float(bud.get("widen_reserve_frac", Config.widen_reserve_frac)),
+        session_share_frac=float(bud.get("session_share_frac", Config.session_share_frac)),
         eval_daily_cap_usd=float(bud.get("eval_daily_cap_usd", Config.eval_daily_cap_usd)),
         source=path,
     )

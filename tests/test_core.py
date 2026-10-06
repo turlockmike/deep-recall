@@ -492,6 +492,29 @@ def test_budget_widen_reserve(tmp_path):
     b.check(0.01)
 
 
+def test_budget_session_share(tmp_path):
+    """2026-10-06: one session's 49-recall burst ate 61% of the $0.60 cap on 10-05 and starved tg-delegate.
+    One session may fill at most session_share_frac of the cap; other sessions and session-less rows are unaffected."""
+    import json, time
+    from deeprecall.budget import Budget
+    from deeprecall.rerankers.base import BudgetExceeded
+    led = tmp_path / "spend.jsonl"
+    now = time.time()
+    led.write_text("".join(json.dumps(r) + "\n" for r in [
+        {"ts": now, "usd": 0.23, "caller": "live", "session": "burst"},
+        {"ts": now, "usd": 0.10, "caller": "live"},                       # legacy/no session
+        {"ts": now - 90000, "usd": 0.50, "caller": "live", "session": "burst"}]))  # outside 24h
+    b = Budget(led, 0.08, 0.60, "live", session="burst", session_share_frac=0.4)
+    with pytest.raises(BudgetExceeded, match="session share"):
+        b.check(0.02)                        # 0.23 + 0.02 > 0.24
+    b.check(0.005)                           # 0.235 <= 0.24
+    Budget(led, 0.08, 0.60, "live", session="other", session_share_frac=0.4).check(0.05)
+    Budget(led, 0.08, 0.60, "live", session=None, session_share_frac=0.4).check(0.05)
+    Budget(led, 0.08, 0.60, "live", session="burst", session_share_frac=0.0).check(0.05)   # 0 = off
+    b.record("jev", 10, 0.001)
+    assert json.loads(led.read_text().splitlines()[-1])["session"] == "burst"
+
+
 def test_jev_local_primary_falls_back_sticky(monkeypatch):
     """base_url = local jev-compatible server ($0); transport failure -> fallback for every copy, priced."""
     from deeprecall.rerankers import jev

@@ -166,7 +166,8 @@ class Recaller:
             self._log(res)
             return res
         budget = Budget(cfg.ledger, cfg.max_usd_per_query,
-                        cfg.eval_daily_cap_usd if self.caller == "eval" else cfg.daily_cap_usd, self.caller)
+                        cfg.eval_daily_cap_usd if self.caller == "eval" else cfg.daily_cap_usd, self.caller,
+                        session=os.environ.get("CLAUDE_CODE_SESSION_ID"), session_share_frac=cfg.session_share_frac)
         cache: dict[str, tuple[float, str]] = {}
         passages: dict[str, str] = {}
         res = Result(q, [], "rerank:" + str(cfg.reranker.get("backend")), len(pool))

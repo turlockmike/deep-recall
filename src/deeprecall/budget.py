@@ -8,6 +8,10 @@ count as live (conservative: never under-count the live cap). Before scoring, th
 pipeline estimates the batch cost and refuses (BudgetExceeded -> fall back to first-stage order)
 if it would cross either cap. A live cap of 0 disables the live cap; an EVAL cap of 0 REFUSES every eval call
 (Mike 2026-10-01 20:03: "no more big jev tests, just use it for deeprecall calls only" -> eval_daily_cap_usd = 0).
+SESSION SHARE (2026-10-06): one interactive PoE2 session fired 49 recalls in 50 min on 10-05 ($0.37 = 61% of
+the $0.60 live cap); every later recall (incl. Mike-facing tg-delegate) ran unreranked 16:13-21:38. Rows now
+carry session=CLAUDE_CODE_SESSION_ID; one session may fill at most session_share_frac of the live cap, so a
+burst degrades only itself. Rows with no session never count toward any session share.
 """
 from __future__ import annotations
 
@@ -24,13 +28,15 @@ def caller_of(row: dict) -> str:
 
 
 class Budget:
-    def __init__(self, ledger: Path, max_usd_per_query: float, daily_cap_usd: float, caller: str = "live"):
+    def __init__(self, ledger: Path, max_usd_per_query: float, daily_cap_usd: float, caller: str = "live",
+                 session: str | None = None, session_share_frac: float = 0.0):
         self.ledger, self.per_query, self.daily = ledger, max_usd_per_query, daily_cap_usd
         self.caller = caller
+        self.session, self.session_share = session or None, session_share_frac
         self.query_usd = 0.0
         self.ceiling = 1.0   # fraction of the daily cap this call may fill (widen passes run < 1.0; see recall.py)
 
-    def day_usd(self) -> float:
+    def day_usd(self, session: str | None = None) -> float:
         since, tot = time.time() - 86400, 0.0
         try:
             with open(self.ledger) as f:
@@ -40,7 +46,8 @@ class Budget:
                     except ValueError:
                         continue
                     if r.get("ts", 0) >= since and caller_of(r) == self.caller:
-                        tot += r.get("usd", 0.0)
+                        if session is None or r.get("session") == session:
+                            tot += r.get("usd", 0.0)
         except FileNotFoundError:
             pass
         return tot
@@ -57,6 +64,10 @@ class Budget:
                                  f"{self.ceiling:.0%} of ${self.daily:.2f}; rest kept for base reranks")
         if self.daily and self.day_usd() + est_usd > self.daily:
             raise BudgetExceeded(f"rolling-24h {self.caller} cap ${self.daily:.2f} reached (ledger {self.ledger})")
+        if (self.caller == "live" and self.daily and self.session and 0 < self.session_share < 1
+                and self.day_usd(self.session) + est_usd > self.daily * self.session_share):
+            raise BudgetExceeded(f"session share: this session's rolling-24h {self.caller} spend would pass "
+                                 f"{self.session_share:.0%} of ${self.daily:.2f}; rest kept for other callers")
 
     def record(self, backend: str, tokens: int, usd: float) -> None:
         self.query_usd += usd
@@ -66,7 +77,8 @@ class Budget:
             self.ledger.parent.mkdir(parents=True, exist_ok=True)
             with open(self.ledger, "a") as f:
                 f.write(json.dumps({"ts": round(time.time(), 3), "pid": os.getpid(), "backend": backend,
-                                    "tokens": tokens, "usd": round(usd, 8), "caller": self.caller}) + "\n")
+                                    "tokens": tokens, "usd": round(usd, 8), "caller": self.caller,
+                                    "session": self.session}) + "\n")
         except OSError:
             pass
 
