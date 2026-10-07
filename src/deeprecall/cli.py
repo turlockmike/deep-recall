@@ -78,7 +78,8 @@ def cmd_index(a) -> int:
         print(f"index: {r['skipped']}", file=sys.stderr)
         return EX_TEMPFAIL
     if not a.quiet or r["indexed"] or r["removed"]:
-        print(f"indexed {r['indexed']} changed file(s), removed {r['removed']}, total {r['total']} ({r['secs']}s) -> {cfg.index}")
+        pend = f", {r['pending']} pending embed (remote down; keyword-findable now, vectors next run)" if r.get("pending") else ""
+        print(f"indexed {r['indexed']} changed file(s), removed {r['removed']}, total {r['total']}{pend} ({r['secs']}s) -> {cfg.index}")
     return 0
 
 

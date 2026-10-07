@@ -16,7 +16,7 @@ from pathlib import Path
 import sqlite_vec
 
 from .config import Config
-from .embed import get_embedder, mean, normalize
+from .embed import RemoteDown, get_embedder, mean, normalize
 from .markdown import read_doc, split_frontmatter, split_units, title_of
 
 
@@ -44,6 +44,10 @@ def ensure_schema(db: sqlite3.Connection, dim: int, model: str) -> None:
             sid INTEGER PRIMARY KEY, path TEXT NOT NULL, hpath TEXT, start_word INTEGER);
         CREATE INDEX IF NOT EXISTS idx_sections_path ON sections(path);
     """)
+    # FTS-first (2026-10-06): docs indexed while the remote embedder was down carry embedded=0 (keyword + rare-term
+    # legs find them; no vectors/sections yet) and are re-indexed by the next run that can embed.
+    if "embedded" not in {r[1] for r in db.execute("PRAGMA table_info(docs)")}:
+        db.execute("ALTER TABLE docs ADD COLUMN embedded INTEGER NOT NULL DEFAULT 1")
     row = db.execute("SELECT v FROM meta WHERE k='embed'").fetchone()
     want = json.dumps({"model": model, "dim": dim})
     if row and row[0] != want:
@@ -120,7 +124,7 @@ def _build(cfg: Config, full: bool, quiet: bool) -> dict:
         for suf in ("-wal", "-shm"):
             Path(str(cfg.index) + suf).unlink(missing_ok=True)
     db = connect(cfg, emb.dim)
-    known = dict(db.execute("SELECT path, hash FROM docs"))
+    known = dict(db.execute("SELECT path, hash FROM docs WHERE embedded=1"))   # pending (embedded=0) docs are redone
     seen, todo = set(), []
     for disp, absp, root in iter_files(cfg):
         seen.add(disp)
@@ -135,6 +139,7 @@ def _build(cfg: Config, full: bool, quiet: bool) -> dict:
     for p in gone:
         _drop(db, p)
     t0, n, group = time.time(), 0, 8
+    remote_down = None                              # set on the first RemoteDown; the rest of the run is FTS-only
     for g in range(0, len(todo), group):           # embed many files per model call (much faster)
         batch = []
         for disp, absp, root, text, h in todo[g:g + group]:
@@ -147,16 +152,27 @@ def _build(cfg: Config, full: bool, quiet: bool) -> dict:
             unit_texts = [f"{title} > {hp}\n{tx}" for hp, _s, tx in units]
             batch.append((disp, root, h, title, extra, body, doc_texts, units, unit_texts))
         flat = [t for b in batch for t in b[6] + b[8]]
-        vecs = emb.embed(flat) if flat else []
+        vecs: list = []
+        if flat and remote_down is None:
+            try:
+                vecs = emb.embed(flat)
+            except RemoteDown as e:
+                remote_down = str(e)
+                print(f"deeprecall: remote embedder down, continuing FTS-first (docs stay keyword-findable, vectors pending): "
+                      f"{remote_down}", file=sys.stderr, flush=True)
+        embedded = 1 if (vecs or not flat) else 0
         i = 0
         for disp, root, h, title, extra, body, doc_texts, units, unit_texts in batch:
             dv = vecs[i:i + len(doc_texts)]; i += len(doc_texts)
             uv = vecs[i:i + len(unit_texts)]; i += len(unit_texts)
             _drop(db, disp)
-            did = db.execute("INSERT INTO docs(path, root, hash, title, words, indexed_at) VALUES (?,?,?,?,?,?)",
-                             (disp, str(root), h, title, len(body.split()), time.time())).lastrowid
+            did = db.execute("INSERT INTO docs(path, root, hash, title, words, indexed_at, embedded) VALUES (?,?,?,?,?,?,?)",
+                             (disp, str(root), h, title, len(body.split()), time.time(), embedded)).lastrowid
             db.execute("INSERT INTO docs_fts(rowid, path, title, body) VALUES (?,?,?,?)",
                        (did, disp, f"{title} {extra}", body))
+            if not embedded:
+                n += 1
+                continue
             db.execute("INSERT INTO docs_vec(id, embedding) VALUES (?, ?)", (did, blob(mean(dv))))
             for (hp, sw, _tx), v in zip(units, uv):
                 sid = db.execute("INSERT INTO sections(path, hpath, start_word) VALUES (?,?,?)",
@@ -168,8 +184,12 @@ def _build(cfg: Config, full: bool, quiet: bool) -> dict:
             print(f"  indexed {n}/{len(todo)} ({time.time() - t0:.0f}s)", file=sys.stderr, flush=True)
     db.commit()
     total = db.execute("SELECT COUNT(*) FROM docs").fetchone()[0]
+    pending = db.execute("SELECT COUNT(*) FROM docs WHERE embedded=0").fetchone()[0]
     db.close()
-    return {"indexed": n, "removed": len(gone), "total": total, "secs": round(time.time() - t0, 1)}
+    out = {"indexed": n, "removed": len(gone), "total": total, "secs": round(time.time() - t0, 1), "pending": pending}
+    if remote_down:
+        out["remote_down"] = remote_down
+    return out
 
 
 def _drop(db: sqlite3.Connection, path: str) -> None:
@@ -192,7 +212,9 @@ def stats(cfg: Config) -> dict:
         docs = db.execute("SELECT COUNT(*), COALESCE(SUM(words),0) FROM docs").fetchone()
         secs = db.execute("SELECT COUNT(*) FROM sections").fetchone()[0]
         meta = dict(db.execute("SELECT k, v FROM meta"))
+        cols = {r[1] for r in db.execute("PRAGMA table_info(docs)")}
+        pending = db.execute("SELECT COUNT(*) FROM docs WHERE embedded=0").fetchone()[0] if "embedded" in cols else 0
     finally:
         db.close()
     return {"index": str(cfg.index), "exists": True, "docs": docs[0], "words": docs[1],
-            "sections": secs, "embedding": json.loads(meta.get("embed", "{}"))}
+            "sections": secs, "pending_embed": pending, "embedding": json.loads(meta.get("embed", "{}"))}

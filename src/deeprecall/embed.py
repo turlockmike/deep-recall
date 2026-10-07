@@ -70,6 +70,11 @@ EG2_QUERY_PREFIX = "task: search result | query: "
 EG2_ONNX_DEFAULT = "~/.local/share/deeprecall/eg2-onnx"
 
 
+class RemoteDown(RuntimeError):
+    """The remote embedding server failed and the local CPU fallback is not allowed for this call (index builds).
+    index.py catches it and switches to FTS-first mode (docs stay keyword-findable, vectors pending)."""
+
+
 class Eg2Embedder:
     """EmbeddingGemma 2: remote `/v1/embeddings` first, local ONNX int8 fallback (queries; builds only if allowed).
 
@@ -99,6 +104,12 @@ class Eg2Embedder:
         self.remote_required_for_build = bool(opts.get("remote_required_for_build", True))
         self.local_onnx = os.path.expanduser(str(opts.get("local_onnx", EG2_ONNX_DEFAULT)))
         self.threads = int(opts.get("threads", 4))
+        # Tower-down RAM cap: each process that loads the int8 model holds ~530 MB RSS. The recall log peaks at 4
+        # overlapping recalls (2026-10-06, 418 recalls), i.e. ~2.1 GB on a 7.8 GB box that OOM-killed at 2.4 GB in
+        # September. At most `local_slots` processes load the model at once (flock slot files); the rest wait.
+        self.local_slots = max(1, int(opts.get("local_slots", 2)))
+        self.slot_dir = os.path.expanduser(str(opts.get("slot_dir") or "~/.cache/deeprecall"))
+        self._slot_fd = None
         self._local = None
         self.last_backend = None
         self.stats = {"remote_calls": 0, "remote_texts": 0, "remote_secs": 0.0, "local_texts": 0, "fallbacks": 0}
@@ -135,8 +146,20 @@ class Eg2Embedder:
         # vectors are exactly unit (sqlite-vec L2 distance == cosine only then)
         return [normalize(list(map(float, x["embedding"]))) for x in rows]
 
+    def _probe(self, timeout: float = 3.0) -> None:
+        """Fail fast when the server is unreachable. A powered-off host (or WSL's mirrored loopback) does not refuse,
+        it black-holes: without this, a build waited remote_timeout x (retries+1) = ~6 min to learn the tower is off
+        (measured 2026-10-06, T3b)."""
+        import socket
+        from urllib.parse import urlparse
+        u = urlparse(self.remote_url)
+        with socket.create_connection((u.hostname, u.port or (443 if u.scheme == "https" else 80)), timeout=timeout):
+            pass
+
     def _remote(self, texts: list[str], timeout: float, retries: int = 2) -> list[list[float]]:
         from concurrent.futures import ThreadPoolExecutor
+        if retries:                     # builds: one cheap connect check before committing to long timeouts
+            self._probe(min(3.0, timeout))
         # length-sorted batches: the server pads each batch to its longest text, so mixing a 20-token summary with
         # 800-token chunks wastes most of the GPU (measured 2026-10-06: unsorted 2.8 files/s, ~23K tok/s)
         order = sorted(range(len(texts)), key=lambda i: len(texts[i]))
@@ -161,8 +184,36 @@ class Eg2Embedder:
         return out
 
     # -- local ONNX int8 ----------------------------------------------------------------------------------------
+    def _acquire_slot(self) -> None:
+        """Hold one of `local_slots` flock slots for the life of this process (released on exit)."""
+        import fcntl
+        if self._slot_fd is not None:
+            return
+        os.makedirs(self.slot_dir, exist_ok=True)
+        fds = []
+        for i in range(self.local_slots):
+            fd = open(os.path.join(self.slot_dir, f"eg2-local-slot-{i}.lock"), "w")
+            try:
+                fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                self._slot_fd = fd
+                for o in fds:
+                    o.close()
+                return
+            except OSError:
+                fds.append(fd)
+        # all busy: queue on one slot (spread by pid), blocking
+        keep = fds[os.getpid() % len(fds)]
+        for o in fds:
+            if o is not keep:
+                o.close()
+        t0 = time.time()
+        fcntl.flock(keep, fcntl.LOCK_EX)
+        self.stats["slot_wait_secs"] = round(time.time() - t0, 2)
+        self._slot_fd = keep
+
     def _load_local(self):
         if self._local is None:
+            self._acquire_slot()
             import numpy as np
             import onnxruntime as ort
             from tokenizers import Tokenizer
@@ -215,7 +266,7 @@ class Eg2Embedder:
                 return out
             except Exception as e:
                 if not allow_local:
-                    raise SystemExit(f"EG2 remote embedder {self.remote_url} failed ({e}); local CPU fallback is refused "
+                    raise RemoteDown(f"EG2 remote embedder {self.remote_url} failed ({e}); local CPU fallback is refused "
                                      f"for index builds (remote_required_for_build). Is the desktop endpoint up?")
                 self.stats["fallbacks"] += 1
                 if query:

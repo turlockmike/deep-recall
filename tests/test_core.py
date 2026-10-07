@@ -602,11 +602,12 @@ def test_eg2_prefixes_and_remote_batching():
     srv.shutdown()
 
 
-def test_eg2_build_refuses_cpu_fallback_when_remote_down():
+def test_eg2_build_refuses_cpu_fallback_when_remote_down(tmp_path):
     from deeprecall.embed import Eg2Embedder
     e = Eg2Embedder({"remote_url": "http://127.0.0.1:9/v1/embeddings", "remote_timeout": 0.5, "query_timeout": 0.5,
-                     "local_onnx": "/nonexistent"})
-    with pytest.raises(SystemExit, match="refused"):
+                     "local_onnx": "/nonexistent", "down_marker": str(tmp_path / "down"), "slot_dir": str(tmp_path)})
+    from deeprecall.embed import RemoteDown
+    with pytest.raises(RemoteDown, match="refused"):                  # index.py turns this into FTS-first mode
         e.embed(["T\nx"])
     with pytest.raises(FileNotFoundError):                            # queries DO fall back (model missing here)
         e.embed_query(["q"])
@@ -639,3 +640,76 @@ def test_eg2_down_marker_is_per_url():
     a = Eg2Embedder({"remote_url": "http://127.0.0.1:9/v1/embeddings"})
     b = Eg2Embedder({"remote_url": "http://192.168.1.78:8089/v1/embeddings"})
     assert a.down_marker != b.down_marker
+
+
+def test_eg2_build_raises_remote_down_not_systemexit(tmp_path):
+    from deeprecall.embed import Eg2Embedder, RemoteDown
+    e = Eg2Embedder({"remote_url": "http://127.0.0.1:9/v1/embeddings", "remote_timeout": 0.5, "local_onnx": "/nonexistent",
+                     "down_marker": str(tmp_path / "down"), "slot_dir": str(tmp_path)})
+    with pytest.raises(RemoteDown, match="refused"):
+        e.embed(["T\nx"])
+
+
+def test_index_fts_first_when_remote_down(tmp_path, monkeypatch):
+    """Tower off: the build still writes docs + FTS (keyword-findable), marks them pending, exits normally; the next
+    run with the remote up embeds exactly the pending docs (hash unchanged) and clears the flag."""
+    import deeprecall.index as idx
+    from deeprecall import embed as em
+    from deeprecall.search import keyword_leg
+    notes = tmp_path / "notes"; notes.mkdir()
+    (notes / "a.md").write_text("# Alpha\n\nzebra quartz lantern\n")
+    (notes / "b.md").write_text("# Beta\n\nplain words here\n")
+    from deeprecall.config import Config
+    cfg = Config(roots=[notes], index=tmp_path / "i.db", embed_model="hash:16")
+    state = {"down": True}
+
+    class Flaky(em.HashEmbedder):
+        def embed(self, texts):
+            if state["down"]:
+                raise em.RemoteDown("remote refused")
+            return super().embed(texts)
+    monkeypatch.setattr(idx, "get_embedder", lambda model, opts=None: Flaky(16))
+
+    r = idx.build(cfg)
+    assert r["indexed"] == 2 and r["pending"] == 2 and "remote_down" in r
+    db = idx.connect(cfg)
+    assert db.execute("SELECT COUNT(*) FROM docs_vec").fetchone()[0] == 0
+    assert [p for p in keyword_leg(db, "zebra quartz", 5)] == ["a.md"]       # keyword-findable while pending
+    db.close()
+    assert idx.stats(cfg)["pending_embed"] == 2
+
+    state["down"] = False
+    r2 = idx.build(cfg)                                                       # remote back: only the pending docs redo
+    assert r2["indexed"] == 2 and r2["pending"] == 0 and "remote_down" not in r2
+    db = idx.connect(cfg)
+    assert db.execute("SELECT COUNT(*) FROM docs_vec").fetchone()[0] == 2
+    assert db.execute("SELECT COUNT(*) FROM docs WHERE embedded=0").fetchone()[0] == 0
+    db.close()
+    r3 = idx.build(cfg)
+    assert r3["indexed"] == 0                                                 # nothing left to do
+
+
+def test_eg2_local_slots_cap_concurrent_model_loads(tmp_path):
+    import fcntl
+    from deeprecall.embed import Eg2Embedder
+    e = Eg2Embedder({"remote_url": "", "local_slots": 1, "slot_dir": str(tmp_path)})
+    e._acquire_slot()
+    other = open(tmp_path / "eg2-local-slot-0.lock", "w")
+    with pytest.raises(OSError):                                              # the one slot is held by this process
+        fcntl.flock(other, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    e._slot_fd.close()                                                        # process exit releases it
+    fcntl.flock(other, fcntl.LOCK_EX | fcntl.LOCK_NB)
+
+
+def test_eg2_build_fails_fast_when_host_blackholes(monkeypatch):
+    """A powered-off tower black-holes TCP (no RST). The build must learn 'down' in seconds, not remote_timeout x tries."""
+    import socket, time
+    from deeprecall.embed import Eg2Embedder, RemoteDown
+    def hang(*a, **k):
+        raise socket.timeout("timed out")
+    monkeypatch.setattr(socket, "create_connection", hang)
+    e = Eg2Embedder({"remote_url": "http://10.255.255.1:8089/v1/embeddings", "remote_timeout": 120})
+    t0 = time.time()
+    with pytest.raises(RemoteDown):
+        e.embed(["T\nx"])
+    assert time.time() - t0 < 5
