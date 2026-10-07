@@ -151,13 +151,14 @@ class JevReranker(Reranker):
 
         def one(p: Passage) -> float:
             text = p.text
-            for _ in range(3):
+            for _ in range(4):
                 try:
                     r = self._ask({"path": p.path, "content": text}, qs)
                     toks.append(int(r.get("usage", {}).get("input_tokens", len(text) // 3)))
                     return float(r["answers"]["q"]["noul"])
                 except RerankerError as e:
-                    if "max_tokens" in str(e) and len(text) > 4000:
+                    # TypeSafe says "max_tokens"; the torchcast tower shim 422s "over context" (4096-token ctx)
+                    if any(k in str(e) for k in ("max_tokens", "over context", "exceed")) and len(text) > 4000:
                         text = text[: len(text) // 2]
                         continue
                     raise
