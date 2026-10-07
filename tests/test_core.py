@@ -688,6 +688,25 @@ def test_index_fts_first_when_remote_down(tmp_path, monkeypatch):
     r3 = idx.build(cfg)
     assert r3["indexed"] == 0                                                 # nothing left to do
 
+    # remote down again, a.md is EDITED: text/FTS refresh, but its old vector stays (stale vector beats none)
+    state["down"] = True
+    (notes / "a.md").write_text("# Alpha\n\nzebra quartz lantern plus new words\n")
+    (notes / "c.md").write_text("# Gamma\n\nbrand new note\n")
+    r4 = idx.build(cfg)
+    assert r4["indexed"] == 2 and r4["pending"] == 2
+    db = idx.connect(cfg)
+    a_id = db.execute("SELECT id FROM docs WHERE path='a.md'").fetchone()[0]
+    assert db.execute("SELECT COUNT(*) FROM docs_vec WHERE id=?", (a_id,)).fetchone()[0] == 1   # kept
+    assert db.execute("SELECT COUNT(*) FROM docs_vec").fetchone()[0] == 2                        # c.md has none yet
+    assert "new words" in db.execute("SELECT body FROM docs_fts WHERE path='a.md'").fetchone()[0]
+    db.close()
+    state["down"] = False
+    r5 = idx.build(cfg)
+    assert r5["indexed"] == 2 and r5["pending"] == 0
+    db = idx.connect(cfg)
+    assert db.execute("SELECT COUNT(*) FROM docs_vec").fetchone()[0] == 3
+    db.close()
+
 
 def test_eg2_local_slots_cap_concurrent_model_loads(tmp_path):
     import fcntl

@@ -165,14 +165,27 @@ def _build(cfg: Config, full: bool, quiet: bool) -> dict:
         for disp, root, h, title, extra, body, doc_texts, units, unit_texts in batch:
             dv = vecs[i:i + len(doc_texts)]; i += len(doc_texts)
             uv = vecs[i:i + len(unit_texts)]; i += len(unit_texts)
-            _drop(db, disp)
-            did = db.execute("INSERT INTO docs(path, root, hash, title, words, indexed_at, embedded) VALUES (?,?,?,?,?,?,?)",
-                             (disp, str(root), h, title, len(body.split()), time.time(), embedded)).lastrowid
-            db.execute("INSERT INTO docs_fts(rowid, path, title, body) VALUES (?,?,?,?)",
-                       (did, disp, f"{title} {extra}", body))
             if not embedded:
+                # FTS-first: refresh the text (docs + FTS) and mark pending. An EDITED doc keeps its old vectors and
+                # sections (a slightly stale vector beats none); a NEW doc is keyword-only until the remote is back.
+                old = db.execute("SELECT id FROM docs WHERE path=?", (disp,)).fetchone()
+                if old:
+                    did = old[0]
+                    db.execute("UPDATE docs SET root=?, hash=?, title=?, words=?, indexed_at=?, embedded=0 WHERE id=?",
+                               (str(root), h, title, len(body.split()), time.time(), did))
+                    db.execute("DELETE FROM docs_fts WHERE rowid=?", (did,))
+                else:
+                    did = db.execute("INSERT INTO docs(path, root, hash, title, words, indexed_at, embedded) VALUES (?,?,?,?,?,?,0)",
+                                     (disp, str(root), h, title, len(body.split()), time.time())).lastrowid
+                db.execute("INSERT INTO docs_fts(rowid, path, title, body) VALUES (?,?,?,?)",
+                           (did, disp, f"{title} {extra}", body))
                 n += 1
                 continue
+            _drop(db, disp)
+            did = db.execute("INSERT INTO docs(path, root, hash, title, words, indexed_at) VALUES (?,?,?,?,?,?)",
+                             (disp, str(root), h, title, len(body.split()), time.time())).lastrowid
+            db.execute("INSERT INTO docs_fts(rowid, path, title, body) VALUES (?,?,?,?)",
+                       (did, disp, f"{title} {extra}", body))
             db.execute("INSERT INTO docs_vec(id, embedding) VALUES (?, ?)", (did, blob(mean(dv))))
             for (hp, sw, _tx), v in zip(units, uv):
                 sid = db.execute("INSERT INTO sections(path, hpath, start_word) VALUES (?,?,?)",
