@@ -632,3 +632,10 @@ def test_eg2_query_fallback_is_fast_and_sticky(tmp_path):
     e2._post = boom; e2._local_embed = lambda texts: [[2.0] for _ in texts]
     assert e2.embed_query(["q"]) == [[2.0]] and calls["n"] == 1      # remote skipped while marked down
     assert __import__("time").time() - t0 < 1.0
+
+
+def test_eg2_down_marker_is_per_url():
+    from deeprecall.embed import Eg2Embedder
+    a = Eg2Embedder({"remote_url": "http://127.0.0.1:9/v1/embeddings"})
+    b = Eg2Embedder({"remote_url": "http://192.168.1.78:8089/v1/embeddings"})
+    assert a.down_marker != b.down_marker

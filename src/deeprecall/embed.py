@@ -92,7 +92,8 @@ class Eg2Embedder:
         # query failure, skip the remote for remote_down_secs. 2026-10-06 A/B with the tower off: no marker + 2 retries
         # = 14 s per search; the int8 encode itself is ~0.3 s.
         self.remote_down_secs = float(opts.get("remote_down_secs", 120))
-        self.down_marker = os.path.expanduser(str(opts.get("down_marker", "~/.cache/deeprecall/eg2-remote-down")))
+        self.down_marker = os.path.expanduser(str(opts.get("down_marker") or "~/.cache/deeprecall/eg2-remote-down-"
+                                                  + hashlib.sha1(self.remote_url.encode()).hexdigest()[:10]))   # per URL
         self.batch_size = int(opts.get("batch_size", 48))
         self.inflight = int(opts.get("inflight", 3))
         self.remote_required_for_build = bool(opts.get("remote_required_for_build", True))
