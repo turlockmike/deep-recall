@@ -611,3 +611,24 @@ def test_eg2_build_refuses_cpu_fallback_when_remote_down():
     with pytest.raises(FileNotFoundError):                            # queries DO fall back (model missing here)
         e.embed_query(["q"])
     assert e.stats["fallbacks"] == 1
+
+
+def test_eg2_query_fallback_is_fast_and_sticky(tmp_path):
+    """Tower off: one failed query marks the remote down (shared marker file), later queries skip it; no retries.
+    2026-10-06: without this, every search paid 2 retries + sleeps = 14 s instead of ~0.3 s int8."""
+    from deeprecall.embed import Eg2Embedder
+    calls = {"n": 0}
+    mk = str(tmp_path / "down")
+    e = Eg2Embedder({"remote_url": "http://127.0.0.1:9/v1/embeddings", "down_marker": mk})
+    def boom(texts, timeout):
+        calls["n"] += 1
+        raise OSError("refused")
+    e._post = boom
+    e._local_embed = lambda texts: [[1.0] for _ in texts]
+    t0 = __import__("time").time()
+    assert e.embed_query(["q"]) == [[1.0]] and calls["n"] == 1        # retries=0 for queries
+    assert __import__("os").path.exists(mk)
+    e2 = Eg2Embedder({"remote_url": "http://127.0.0.1:9/v1/embeddings", "down_marker": mk})   # new process, same marker
+    e2._post = boom; e2._local_embed = lambda texts: [[2.0] for _ in texts]
+    assert e2.embed_query(["q"]) == [[2.0]] and calls["n"] == 1      # remote skipped while marked down
+    assert __import__("time").time() - t0 < 1.0

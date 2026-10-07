@@ -87,7 +87,12 @@ class Eg2Embedder:
         # remote_model = "embeddinggemma-2:270m"; Ollama requires the "model" field, the desktop server ignores it.
         self.remote_model = opts.get("remote_model") or ""
         self.remote_timeout = float(opts.get("remote_timeout", 120))
-        self.query_timeout = float(opts.get("query_timeout", 3))   # LAN GPU answers in ~20 ms; fall back fast
+        self.query_timeout = float(opts.get("query_timeout", 0.75))   # LAN GPU answers in ~50 ms; fall back fast
+        # Query-side down-marker shared across processes (each `deeprecall recall` is a fresh process): after a remote
+        # query failure, skip the remote for remote_down_secs. 2026-10-06 A/B with the tower off: no marker + 2 retries
+        # = 14 s per search; the int8 encode itself is ~0.3 s.
+        self.remote_down_secs = float(opts.get("remote_down_secs", 120))
+        self.down_marker = os.path.expanduser(str(opts.get("down_marker", "~/.cache/deeprecall/eg2-remote-down")))
         self.batch_size = int(opts.get("batch_size", 48))
         self.inflight = int(opts.get("inflight", 3))
         self.remote_required_for_build = bool(opts.get("remote_required_for_build", True))
@@ -185,12 +190,26 @@ class Eg2Embedder:
         return [enc(t) for t in texts]
 
     # -- public -------------------------------------------------------------------------------------------------
-    def _run(self, texts: list[str], timeout: float, allow_local: bool) -> list[list[float]]:
+    def _remote_marked_down(self) -> bool:
+        try:
+            return time.time() - os.path.getmtime(self.down_marker) < self.remote_down_secs
+        except OSError:
+            return False
+
+    def _mark_remote_down(self) -> None:
+        try:
+            os.makedirs(os.path.dirname(self.down_marker), exist_ok=True)
+            with open(self.down_marker, "w") as f:
+                f.write(f"{self.remote_url}\n")
+        except OSError:
+            pass
+
+    def _run(self, texts: list[str], timeout: float, allow_local: bool, query: bool = False) -> list[list[float]]:
         if not texts:
             return []
-        if self.remote_url:
+        if self.remote_url and not (query and self._remote_marked_down()):
             try:
-                out = self._remote(texts, timeout)
+                out = self._remote(texts, timeout, retries=0 if query else 2)
                 self.last_backend = "remote"
                 return out
             except Exception as e:
@@ -198,6 +217,8 @@ class Eg2Embedder:
                     raise SystemExit(f"EG2 remote embedder {self.remote_url} failed ({e}); local CPU fallback is refused "
                                      f"for index builds (remote_required_for_build). Is the desktop endpoint up?")
                 self.stats["fallbacks"] += 1
+                if query:
+                    self._mark_remote_down()
                 print(f"deeprecall: EG2 remote failed ({e}); using local ONNX int8", file=sys.stderr)
         self.last_backend = "local"
         return self._local_embed(texts)
@@ -206,7 +227,7 @@ class Eg2Embedder:
         return self._run([self.doc_text(t) for t in texts], self.remote_timeout, allow_local=not self.remote_required_for_build)
 
     def embed_query(self, texts: list[str]) -> list[list[float]]:
-        return self._run([self.query_text(t) for t in texts], self.query_timeout, allow_local=True)
+        return self._run([self.query_text(t) for t in texts], self.query_timeout, allow_local=True, query=True)
 
 
 def _key(opts: dict | None) -> str:
