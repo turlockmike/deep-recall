@@ -168,6 +168,29 @@ def test_fail_open(cfg):
     assert r.mode.startswith("first-stage") and r.hits and "402" in r.note
 
 
+def test_skipped_rerank_is_loud(cfg, capsys):
+    """p-20261008-33: a reranker fallback must reach the reader, not only the bracketed meta line."""
+    import deeprecall.cli as cli
+    cfg.reranker = {"backend": "fake"}
+    cfg.max_usd_per_query = 1e-9
+    r = Recaller(cfg, KeywordFake()).recall("Which electricity plan did we switch to?")
+    cli._print_recall(r, False, False)
+    cap = capsys.readouterr()
+    assert cap.out.startswith("⚠ RERANKER SKIPPED (BudgetExceeded") and "RERANKER SKIPPED" in cap.err
+    cli._print_recall(r, True, False)
+    out = json.loads(capsys.readouterr().out)
+    assert out["reranked"] is False and out["warning"].startswith("⚠ RERANKER SKIPPED")
+    cfg.max_usd_per_query = 1.0  # a healthy rerank and a deliberate keyword run stay quiet
+    for q in ("Which electricity plan did we switch to?", "electricity plan"):
+        cli._print_recall(Recaller(cfg, KeywordFake()).recall(q), False, False)
+        c = capsys.readouterr()
+        assert "RERANKER SKIPPED" not in c.out + c.err
+    ok = Recaller(cfg, KeywordFake()).recall("Which electricity plan did we switch to?")
+    cli._print_recall(ok, True, False)
+    out = json.loads(capsys.readouterr().out)
+    assert out["reranked"] is True and out["warning"] == ""
+
+
 def test_budget_caps(tmp_path):
     b = Budget(tmp_path / "l.jsonl", 0.01, 0.02)
     b.check(0.005)

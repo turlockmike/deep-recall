@@ -22,13 +22,31 @@ from .budget import summary
 from .config import TEMPLATE, find_config_file, load
 
 
+def _skip_warning(r) -> str:
+    """Loud marker when a question SHOULD have been reranked but fell back to first-stage order.
+
+    2026-10-08: 36% of live recalls ran unreranked and the only signal was the bracketed stderr meta line,
+    which no reader looks at. Deliberate first-stage runs (keyword gate, backend none, rerank=False) are
+    not warnings; only "first-stage (reranker unavailable)" is."""
+    if "reranker unavailable" not in r.mode:
+        return ""
+    return f"⚠ RERANKER SKIPPED ({r.note or 'unknown reason'}): first-stage ranking only — re-check before citing"
+
+
 def _print_recall(r, as_json: bool, show_passage: bool, cap: int = 3000) -> None:
+    warn = _skip_warning(r)
     if as_json:
         print(json.dumps({"query": r.query, "mode": r.mode, "pool": r.pool, "widened": r.widened, "usd": r.usd,
                           "tokens": r.tokens, "secs": r.secs, "note": r.note, "kind": r.kind,
+                          "reranked": r.mode.startswith("rerank"), "warning": warn,
                           "results": [{"path": h.path, "score": h.score, "section": h.section} for h in r.hits],
                           "passage": r.hits[0].passage if r.hits else ""}, indent=1))
+        if warn:
+            print(warn, file=sys.stderr)
         return
+    if warn:
+        print(warn)
+        print(warn, file=sys.stderr)
     for i, h in enumerate(r.hits, 1):
         s = f"{h.score:.2f}" if h.score is not None else "  - "
         print(f"{i}. {s}  {h.path}" + (f"\n         § {h.section[:100]}" if h.section else ""))
