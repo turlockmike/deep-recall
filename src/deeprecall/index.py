@@ -135,7 +135,9 @@ def _build(cfg: Config, full: bool, quiet: bool) -> dict:
         h = hashlib.sha256(text.encode()).hexdigest()[:16]
         if known.get(disp) != h:
             todo.append((disp, absp, root, text, h))
-    gone = [p for p in known if p not in seen]
+    # every indexed path, pending ones included: a file deleted while still un-embedded must be dropped too,
+    # or it counts as pending_embed forever
+    gone = [p for (p,) in db.execute("SELECT path FROM docs").fetchall() if p not in seen]
     for p in gone:
         _drop(db, p)
     t0, n, group = time.time(), 0, 8

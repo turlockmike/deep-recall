@@ -730,6 +730,19 @@ def test_index_fts_first_when_remote_down(tmp_path, monkeypatch):
     assert db.execute("SELECT COUNT(*) FROM docs_vec").fetchone()[0] == 3
     db.close()
 
+    # a note written and DELETED while the remote is down must leave the index, not sit as pending forever
+    state["down"] = True
+    (notes / "d.md").write_text("# Delta\n\nshort lived note\n")
+    assert idx.build(cfg)["pending"] == 1
+    (notes / "d.md").unlink()
+    state["down"] = False
+    r6 = idx.build(cfg)
+    assert r6["pending"] == 0 and r6["removed"] == 1 and idx.stats(cfg)["pending_embed"] == 0
+    db = idx.connect(cfg)
+    assert db.execute("SELECT COUNT(*) FROM docs WHERE path='d.md'").fetchone()[0] == 0
+    assert keyword_leg(db, "short lived", 5) == [] or "d.md" not in list(keyword_leg(db, "short lived", 5))
+    db.close()
+
 
 def test_eg2_local_slots_cap_concurrent_model_loads(tmp_path):
     import fcntl
