@@ -120,6 +120,7 @@ class Config:
     widen_reserve_frac: float = 0.35  # share of daily_cap_usd a widen pass may NOT consume (kept for base reranks)
     session_share_frac: float = 0.4   # max share of daily_cap_usd ONE session may fill (2026-10-06; 0 = off)
     eval_daily_cap_usd: float = 0.0   # Mike 2026-10-01 20:03: 0 = evals refused
+    labels: dict = field(default_factory=dict)  # [labels]: show each hit's document type + date (off when empty)
     source: Path | None = None
 
     @property
@@ -170,6 +171,7 @@ def load(path: Path | None = None, **overrides) -> Config:
         widen_reserve_frac=float(bud.get("widen_reserve_frac", Config.widen_reserve_frac)),
         session_share_frac=float(bud.get("session_share_frac", Config.session_share_frac)),
         eval_daily_cap_usd=float(bud.get("eval_daily_cap_usd", Config.eval_daily_cap_usd)),
+        labels=dict(raw.get("labels", {})),
         source=path,
     )
     if "DEEPRECALL_EMBED_REMOTE_URL" in os.environ:   # "" forces the local (ONNX int8) path: the query-side check

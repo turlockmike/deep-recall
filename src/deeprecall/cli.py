@@ -33,13 +33,38 @@ def _skip_warning(r) -> str:
     return f"⚠ RERANKER SKIPPED ({r.note or 'unknown reason'}): first-stage ranking only — re-check before citing"
 
 
-def _print_recall(r, as_json: bool, show_passage: bool, cap: int = 3000) -> None:
+def _label(cfg, path: str) -> tuple[str, str]:
+    """(type, date) for a hit, from [labels]: `field` (default "kind") in the frontmatter, else the
+    first matching glob in `defaults`; date = the first of `date_fields` present. ("", "") when off."""
+    lab = getattr(cfg, "labels", None) or {}
+    if not lab:
+        return "", ""
+    import fnmatch
+    from .markdown import read_doc, split_frontmatter
+    try:
+        fm, _ = split_frontmatter(read_doc(idx.resolve(cfg, path)))
+    except Exception:
+        fm = {}
+    kind = str(fm.get(lab.get("field", "kind")) or "")
+    if not kind:
+        for pat, k in (lab.get("defaults") or {}).items():
+            if fnmatch.fnmatch(path, pat):
+                kind = str(k)
+                break
+    date = next((str(fm[f])[:10] for f in lab.get("date_fields", []) if fm.get(f)), "")
+    return kind, date
+
+
+def _print_recall(r, as_json: bool, show_passage: bool, cap: int = 3000, cfg=None) -> None:
     warn = _skip_warning(r)
+    labels = {h.path: _label(cfg, h.path) for h in r.hits} if cfg is not None else {}
     if as_json:
         print(json.dumps({"query": r.query, "mode": r.mode, "pool": r.pool, "widened": r.widened, "usd": r.usd,
                           "tokens": r.tokens, "secs": r.secs, "note": r.note, "kind": r.kind,
                           "reranked": r.mode.startswith("rerank"), "warning": warn,
-                          "results": [{"path": h.path, "score": h.score, "section": h.section} for h in r.hits],
+                          "results": [{"path": h.path, "score": h.score, "section": h.section,
+                                       **({"type": labels[h.path][0], "date": labels[h.path][1]} if labels.get(h.path, ("", ""))[0] else {})}
+                                      for h in r.hits],
                           "passage": r.hits[0].passage if r.hits else ""}, indent=1))
         if warn:
             print(warn, file=sys.stderr)
@@ -49,12 +74,16 @@ def _print_recall(r, as_json: bool, show_passage: bool, cap: int = 3000) -> None
         print(warn, file=sys.stderr)
     for i, h in enumerate(r.hits, 1):
         s = f"{h.score:.2f}" if h.score is not None else "  - "
-        print(f"{i}. {s}  {h.path}" + (f"\n         § {h.section[:100]}" if h.section else ""))
+        k, d = labels.get(h.path, ("", ""))
+        tag = f"  [{k}{' · ' + d if d else ''}]" if k else ""
+        print(f"{i}. {s}  {h.path}{tag}" + (f"\n         § {h.section[:100]}" if h.section else ""))
     top = r.hits[0] if r.hits else None
     wa = r.extra.get("widen_at", 0.5)
     if show_passage and top and top.passage and top.score is not None and top.score >= wa:
         body = top.passage[:cap] + (" …[truncated; open the file]" if len(top.passage) > cap else "")
-        print(f"\n--- #1 winning section ({top.path}) ---\n{body}")
+        k, d = labels.get(top.path, ("", ""))
+        tag = f" [{k}{' · ' + d if d else ''}]" if k else ""
+        print(f"\n--- #1 winning section ({top.path}){tag} ---\n{body}")
     meta = f"[{r.mode} · pool {r.pool} · ${r.usd:.4f} · {r.secs:.1f}s"
     meta += f" · {r.kind}" if r.kind else ""
     meta += " · widened" if r.widened else ""
@@ -119,7 +148,7 @@ def cmd_recall(a) -> int:
     if a.backend:
         cfg.reranker = {**cfg.reranker, "backend": a.backend}
     r = Recaller(cfg).recall(a.query, top=a.top, k=a.k, rerank=not a.no_rerank)
-    _print_recall(r, a.json, not a.no_passage)
+    _print_recall(r, a.json, not a.no_passage, cfg=cfg)
     return 0
 
 

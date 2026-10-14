@@ -11,7 +11,15 @@ _FM = re.compile(r"\A---\s*\n(.*?)\n---\s*\n", re.S)
 _H = re.compile(r"^(#{1,6})\s+(.+?)\s*#*\s*$")
 
 
+_LEAD_COMMENT = re.compile(r"\A<!--.*?-->\s*", re.S)
+
+
 def split_frontmatter(text: str) -> tuple[dict, str]:
+    """Frontmatter at the top of a file, or directly under one leading HTML comment
+    (tools such as strata keep a telemetry comment above the frontmatter)."""
+    lead = _LEAD_COMMENT.match(text)
+    if lead and text[lead.end():].startswith("---"):
+        text = text[lead.end():]
     m = _FM.match(text)
     if not m:
         return {}, text
