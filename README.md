@@ -204,6 +204,25 @@ daily_cap_usd = 1.00        # rolling 24h across all processes; 0 disables
 
 `deeprecall status` shows spend for the last 24 hours and all time.
 
+## Label hits by document type
+
+If your notes declare what kind of document they are, recall can print it next to each hit, so
+the reader knows whether a hit is a current fact, a rule, a log entry or a cached answer:
+
+```toml
+[labels]
+field = "kind"                                  # frontmatter field holding the type
+date_fields = ["as_of", "updated"]              # first one present is shown
+[labels.defaults]                               # type for files without the field, first match wins
+"journal/**" = "record"
+```
+
+```
+1. 0.95  resources/memory-kinds.md  [rule · 2026-10-13]
+```
+
+Off when `[labels]` is absent. Frontmatter is also read when a single HTML comment precedes it.
+
 ## Evaluate on your own notes
 
 ```jsonl
