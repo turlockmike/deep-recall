@@ -146,7 +146,9 @@ def _build(cfg: Config, full: bool, quiet: bool, allow_local: int = 0) -> dict:
     if budget:
         todo.sort(key=lambda t: len(t[3]))          # smallest docs first: most docs embedded per CPU second
     try:
-        return _build_loop(cfg, db, emb, todo, gone, t0, n, group, quiet, budget)
+        # one doc per batch while budgeted: the budget check is per batch, and the index commits per batch,
+        # so a cron-timeout kill loses at most one doc
+        return _build_loop(cfg, db, emb, todo, gone, t0, n, 1 if budget else group, quiet, budget)
     finally:
         if prior_req is not None:
             emb.remote_required_for_build = prior_req
@@ -172,7 +174,8 @@ def _build_loop(cfg, db, emb, todo, gone, t0, n, group, quiet, budget=0) -> dict
         flat = [t for b in batch for t in b[6] + b[8]]
         vecs: list = []
         if flat and budget:
-            fits = local_used + len(flat) <= budget
+            fits = local_used == 0 or local_used + len(flat) <= budget   # the run's first doc always goes, or a
+                                                                       # doc bigger than the budget stays pending forever
             emb.remote_required_for_build = not fits
             if fits:
                 remote_down = None                  # a smaller batch may still fit after a bigger one did not

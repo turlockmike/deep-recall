@@ -777,7 +777,7 @@ def test_index_allow_local_budget(tmp_path, monkeypatch):
     from deeprecall import embed as em
     from deeprecall.config import Config
     notes = tmp_path / "notes"; notes.mkdir()
-    for i in range(10):                                    # 10 one-chunk docs -> 2 batches of 8 + 2
+    for i in range(10):                                    # 10 one-chunk docs; budgeted runs go one doc per batch
         (notes / f"d{i}.md").write_text(f"# D{i}\n\n" + "word " * (5 + i) + "\n")
     cfg = Config(roots=[notes], index=tmp_path / "i.db", embed_model="hash:16")
 
@@ -793,11 +793,14 @@ def test_index_allow_local_budget(tmp_path, monkeypatch):
 
     r = idx.build(cfg)                                     # no budget: all FTS-first
     assert r["pending"] == 10
-    r = idx.build(cfg, allow_local=5)                      # first batch (8 texts) is over 5; the 2-text batch fits
-    assert r["pending"] == 8 and r["local_texts"] == 2
+    r = idx.build(cfg, allow_local=5)                      # 5 docs fit the budget, 5 stay pending
+    assert r["pending"] == 5 and r["local_texts"] == 5
     assert e.remote_required_for_build is True             # guard restored for the next caller
     r = idx.build(cfg, allow_local=100)                    # budget covers the rest
-    assert r["pending"] == 0 and r["local_texts"] == 8
+    assert r["pending"] == 0 and r["local_texts"] == 5
     db = idx.connect(cfg)
     assert db.execute("SELECT COUNT(*) FROM docs_vec").fetchone()[0] == 10
     db.close()
+    (notes / "big.md").write_text("# Big\n\n" + "word " * 2000 + "\n")  # one doc needing more texts than the budget
+    r = idx.build(cfg, allow_local=2)                      # the run's first doc always goes, so it cannot stick
+    assert r["pending"] == 0 and r["local_texts"] > 2
