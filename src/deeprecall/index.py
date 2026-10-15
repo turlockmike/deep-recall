@@ -100,7 +100,7 @@ def _chunks(body: str, n: int) -> list[str]:
     return [" ".join(w[i:i + n]) for i in range(0, len(w), n)] or [""]
 
 
-def build(cfg: Config, full: bool = False, quiet: bool = False) -> dict:
+def build(cfg: Config, full: bool = False, quiet: bool = False, allow_local: int = 0) -> dict:
     """Build/update the index. Only one builder per index runs at a time; a second call returns
     immediately with {"skipped": "locked"} instead of racing the first."""
     import fcntl
@@ -112,12 +112,12 @@ def build(cfg: Config, full: bool = False, quiet: bool = False) -> dict:
         lock.close()
         return {"indexed": 0, "removed": 0, "total": None, "secs": 0, "skipped": "locked (another index build is running)"}
     try:
-        return _build(cfg, full, quiet)
+        return _build(cfg, full, quiet, allow_local)
     finally:
         lock.close()
 
 
-def _build(cfg: Config, full: bool, quiet: bool) -> dict:
+def _build(cfg: Config, full: bool, quiet: bool, allow_local: int = 0) -> dict:
     emb = get_embedder(cfg.embed_model, cfg.embedding)
     if full and cfg.index.exists():
         cfg.index.unlink()
@@ -141,6 +141,22 @@ def _build(cfg: Config, full: bool, quiet: bool) -> dict:
     for p in gone:
         _drop(db, p)
     t0, n, group = time.time(), 0, 8
+    prior_req = getattr(emb, "remote_required_for_build", None)
+    budget = allow_local if (allow_local and prior_req) else 0
+    if budget:
+        todo.sort(key=lambda t: len(t[3]))          # smallest docs first: most docs embedded per CPU second
+    try:
+        return _build_loop(cfg, db, emb, todo, gone, t0, n, group, quiet, budget)
+    finally:
+        if prior_req is not None:
+            emb.remote_required_for_build = prior_req
+
+
+def _build_loop(cfg, db, emb, todo, gone, t0, n, group, quiet, budget=0) -> dict:
+    """budget > 0 (`--allow-local N`): with the remote down, up to N texts this run embed on the local CPU
+    (~2.5 s each on the N150), so a 30-min cron drains a backlog in slices that fit its timeout and a full
+    rebuild (~70k texts, ~80 h) can never start on the CPU by accident. Docs past the budget stay pending."""
+    local_used = 0
     remote_down = None                              # set on the first RemoteDown; the rest of the run is FTS-only
     for g in range(0, len(todo), group):           # embed many files per model call (much faster)
         batch = []
@@ -155,9 +171,16 @@ def _build(cfg: Config, full: bool, quiet: bool) -> dict:
             batch.append((disp, root, h, title, extra, body, doc_texts, units, unit_texts))
         flat = [t for b in batch for t in b[6] + b[8]]
         vecs: list = []
+        if flat and budget:
+            fits = local_used + len(flat) <= budget
+            emb.remote_required_for_build = not fits
+            if fits:
+                remote_down = None                  # a smaller batch may still fit after a bigger one did not
         if flat and remote_down is None:
             try:
                 vecs = emb.embed(flat)
+                if budget and getattr(emb, "last_backend", "local") == "local":
+                    local_used += len(flat)
             except RemoteDown as e:
                 remote_down = str(e)
                 print(f"deeprecall: remote embedder down, continuing FTS-first (docs stay keyword-findable, vectors pending): "
@@ -202,6 +225,8 @@ def _build(cfg: Config, full: bool, quiet: bool) -> dict:
     pending = db.execute("SELECT COUNT(*) FROM docs WHERE embedded=0").fetchone()[0]
     db.close()
     out = {"indexed": n, "removed": len(gone), "total": total, "secs": round(time.time() - t0, 1), "pending": pending}
+    if budget:
+        out["local_texts"] = local_used
     if remote_down:
         out["remote_down"] = remote_down
     return out

@@ -118,7 +118,7 @@ def cmd_index(a) -> int:
     if not cfg.roots:
         print("no roots configured: run `deeprecall init --root <notes dir>`", file=sys.stderr)
         return 2
-    r = idx.build(cfg, full=a.full, quiet=a.quiet)
+    r = idx.build(cfg, full=a.full, quiet=a.quiet, allow_local=a.allow_local)
     if r.get("skipped"):
         # 75 = EX_TEMPFAIL: a lock-skip did no work, so it must not exit like a successful run
         # (a scheduler would record a green run that indexed nothing; auditor D425-V2-1).
@@ -229,6 +229,8 @@ def main(argv=None) -> int:
     p = sub.add_parser("index", help="build or update the index")
     p.add_argument("--full", action="store_true", help="rebuild from scratch")
     p.add_argument("--quiet", action="store_true")
+    p.add_argument("--allow-local", type=int, default=0, metavar="N",
+                   help="remote embedder down: embed on the local CPU if this run needs <= N texts (~2.5 s each)")
     p.set_defaults(fn=cmd_index)
     p = sub.add_parser("search", help="first-stage hybrid search")
     p.add_argument("query")

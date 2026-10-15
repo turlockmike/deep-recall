@@ -768,3 +768,36 @@ def test_eg2_build_fails_fast_when_host_blackholes(monkeypatch):
     with pytest.raises(RemoteDown):
         e.embed(["T\nx"])
     assert time.time() - t0 < 5
+
+
+def test_index_allow_local_budget(tmp_path, monkeypatch):
+    """Remote down + --allow-local N: up to N texts this run embed on the local fallback, smallest docs first;
+    the rest stay pending (FTS-first) for the next run, and the embedder's build guard is restored afterwards."""
+    import deeprecall.index as idx
+    from deeprecall import embed as em
+    from deeprecall.config import Config
+    notes = tmp_path / "notes"; notes.mkdir()
+    for i in range(10):                                    # 10 one-chunk docs -> 2 batches of 8 + 2
+        (notes / f"d{i}.md").write_text(f"# D{i}\n\n" + "word " * (5 + i) + "\n")
+    cfg = Config(roots=[notes], index=tmp_path / "i.db", embed_model="hash:16")
+
+    class DownRemote(em.HashEmbedder):
+        remote_required_for_build = True
+        last_backend = "local"
+        def embed(self, texts):
+            if self.remote_required_for_build:
+                raise em.RemoteDown("remote refused")
+            return super().embed(texts)                     # stands in for the local ONNX path
+    e = DownRemote(16)
+    monkeypatch.setattr(idx, "get_embedder", lambda model, opts=None: e)
+
+    r = idx.build(cfg)                                     # no budget: all FTS-first
+    assert r["pending"] == 10
+    r = idx.build(cfg, allow_local=5)                      # first batch (8 texts) is over 5; the 2-text batch fits
+    assert r["pending"] == 8 and r["local_texts"] == 2
+    assert e.remote_required_for_build is True             # guard restored for the next caller
+    r = idx.build(cfg, allow_local=100)                    # budget covers the rest
+    assert r["pending"] == 0 and r["local_texts"] == 8
+    db = idx.connect(cfg)
+    assert db.execute("SELECT COUNT(*) FROM docs_vec").fetchone()[0] == 10
+    db.close()
